@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NADEC E2E — Manage Lists</title>
+
+  <style>
+    html, body { height: 100%; margin: 0; box-sizing: border-box;
+                 font-family: '72','72full',Arial,sans-serif; background: #eaecee; }
+    /* Brand top bar (matches the portal's bar) */
+    #adminTopBar {
+      position: fixed; top: 0; left: 0; right: 0; height: 48px; z-index: 1000;
+      display: flex; align-items: center; gap: 12px; padding: 0 16px; box-sizing: border-box;
+      background: linear-gradient(135deg, #0033A0, #002673);
+      color: #fff; box-shadow: 0 2px 4px rgba(0,0,0,0.18); font-size: 13px;
+    }
+    #adminTopBar .ghost {
+      padding: 5px 12px; font-size: 13px; font-weight: 600; color: #fff; cursor: pointer;
+      background: rgba(255,255,255,0.14); border: 1px solid rgba(255,255,255,0.5); border-radius: 6px;
+    }
+    #adminTopBar .title { font-weight: 600; font-size: 15px; letter-spacing: 0.3px; white-space: nowrap; }
+    #adminTopBar .spacer { flex: 1 1 auto; }
+    #adminTopBar .who { opacity: 0.85; white-space: nowrap; }
+    #adminTopBar .signout {
+      padding: 5px 14px; font-size: 13px; font-weight: 600; color: #0033A0; cursor: pointer;
+      background: #fff; border: 1px solid #fff; border-radius: 6px;
+    }
+    #uiArea { padding-top: 48px; height: 100%; box-sizing: border-box; }
+  </style>
+
+  <script>
+    // ---- Manager-only guard ----------------------------------------------
+    // The admin page is for the Manager. Employees who land here are sent back
+    // to the portal. (The server also enforces it: any write 403s for them.)
+    (function () {
+      var token = sessionStorage.getItem("e2e-auth");
+      var role  = sessionStorage.getItem("e2e-user-role");
+      if (!token) { window.location.replace("../../project-portal/webapp/login.html"); return; }
+      if (role !== "Manager") { window.location.replace("../../project-portal/webapp/index.html"); return; }
+    })();
+  </script>
+
+  <script
+    id="sap-ui-bootstrap"
+    src="https://ui5.sap.com/1.145.0/resources/sap-ui-core.js"
+    data-sap-ui-theme="sap_horizon"
+    data-sap-ui-libs="sap.m,sap.ui.core,sap.f,sap.ui.layout"
+    data-sap-ui-compatVersion="edge"
+    data-sap-ui-async="true"
+    data-sap-ui-frameOptions="trusted">
+  </script>
+
+  <script>
+    // The maintainable lists, grouped by the area of the portal they feed.
+    // Kept in sync with the Manager-writable lookups in srv/service.cds.
+    var LISTS = [
+      // group: Project portfolio
+      { label: "Work Category",            entity: "WorkCategories",    group: "Project portfolio", hint: "Business Impact vs Support / Operations" },
+      { label: "Business Domain",          entity: "BusinessDomains",   group: "Project portfolio", hint: "Sales, Supply Chain, Finance, …" },
+      { label: "Division / Department",    entity: "Departments",       group: "Project portfolio", hint: "Business requester departments" },
+      { label: "Business Owner",           entity: "BusinessOwners",    group: "Project portfolio", hint: "Accountable business roles" },
+      { label: "Priority",                 entity: "Priorities",        group: "Project portfolio", hint: "Critical / High / Medium / Low" },
+      { label: "Current Phase",            entity: "Phases",            group: "Project portfolio", hint: "Lifecycle phase of the project" },
+      { label: "Risk Level / Impact",      entity: "RiskLevels",        group: "Project portfolio", hint: "Used for risk level and risk impact" },
+      // group: Readiness & Business Input
+      { label: "E2E Stage Status",         entity: "StageStatuses",     group: "Readiness & Business Input", hint: "Status of each of the 7 stages" },
+      { label: "Approval Status",          entity: "ApprovalStatuses",  group: "Readiness & Business Input", hint: "Pending / Approved / Rejected …" },
+      { label: "Source Document",          entity: "SourceDocuments",   group: "Readiness & Business Input", hint: "BRD, CR, Meeting Discussion, …" },
+      { label: "Post Go-Live Review Status", entity: "ReviewStatuses",  group: "Readiness & Business Input", hint: "Review state after go-live" },
+      { label: "Benefit Achieved",         entity: "BenefitAchieved",   group: "Readiness & Business Input", hint: "Yes / Partial / No" },
+      // group: Solution & support
+      { label: "Solution Type",            entity: "SolutionTypes",     group: "Solution & support", hint: "Web App, Mobile, API, …" },
+      { label: "Integration Type",         entity: "IntegrationTypes",  group: "Solution & support", hint: "API, Batch Job, File Upload, …" },
+      { label: "Environment",              entity: "Environments",      group: "Solution & support", hint: "DEV / UAT / PROD, …" },
+      { label: "Monitoring Method",        entity: "MonitoringMethods", group: "Solution & support", hint: "App Insights, Log File, …" },
+      { label: "Authentication Method",    entity: "AuthMethods",       group: "Solution & support", hint: "SSO, OAuth, API Key, …" },
+      { label: "Complexity / Criticality", entity: "Criticalities",     group: "Solution & support", hint: "Low / Medium / High / Very High" },
+      { label: "Error Handling",           entity: "ErrorHandlings",    group: "Solution & support", hint: "Retry, Email Alert, …" },
+      // group: Testing / QA
+      { label: "Test Phase",               entity: "TestPhases",        group: "Testing / QA", hint: "SIT, UAT, Regression, …" },
+      { label: "Test Status",              entity: "TestStatuses",      group: "Testing / QA", hint: "Passed / Failed / Blocked …" },
+      { label: "Bug Severity",             entity: "BugSeverities",     group: "Testing / QA", hint: "Low / Medium / High / Critical" },
+      { label: "Bug Priority",             entity: "BugPriorities",     group: "Testing / QA", hint: "Low / Medium / High / Critical" },
+      { label: "Bug Status",               entity: "BugStatuses",       group: "Testing / QA", hint: "Open / Retest / Closed …" },
+      // group: Shared
+      { label: "Yes / No / N/A",           entity: "YesNoNA",           group: "Shared", hint: "Checklist / boolean answers" },
+      { label: "Blocking Team",            entity: "BlockingTeams",     group: "Shared", hint: "Team owning a blocker" },
+      { label: "Risk Status",              entity: "RiskStatuses",      group: "Shared", hint: "Open / In Progress / Closed …" }
+    ];
+
+    sap.ui.getCore().attachInit(function () {
+      sap.ui.require([
+        "sap/ui/model/odata/v4/ODataModel",
+        "sap/ui/model/json/JSONModel",
+        "sap/ui/model/Filter",
+        "sap/ui/model/FilterOperator",
+        "sap/ui/model/Sorter",
+        "sap/m/MessageToast",
+        "sap/m/MessageBox",
+        "sap/m/Button",
+        "sap/m/Input",
+        "sap/m/StepInput",
+        "sap/m/Label",
+        "sap/m/Title",
+        "sap/m/Text",
+        "sap/m/ObjectStatus",
+        "sap/m/SearchField",
+        "sap/m/List",
+        "sap/m/StandardListItem",
+        "sap/m/GroupHeaderListItem",
+        "sap/m/Table",
+        "sap/m/Column",
+        "sap/m/ColumnListItem",
+        "sap/m/Toolbar",
+        "sap/m/OverflowToolbar",
+        "sap/m/ToolbarSpacer",
+        "sap/m/IllustratedMessage",
+        "sap/f/FlexibleColumnLayout",
+        "sap/m/Page",
+        "sap/m/Dialog",
+        "sap/ui/layout/form/SimpleForm"
+      ], function (ODataModel, JSONModel, Filter, FilterOperator, Sorter, MessageToast, MessageBox,
+                   Button, Input, StepInput, Label, Title, Text, ObjectStatus, SearchField,
+                   List, StandardListItem, GroupHeaderListItem, Table, Column, ColumnListItem,
+                   Toolbar, OverflowToolbar, ToolbarSpacer, IllustratedMessage, FlexibleColumnLayout, Page,
+                   Dialog, SimpleForm) {
+        "use strict";
+
+        // ---- Brand top bar (plain DOM, same look as the portal) ----------
+        var userName = sessionStorage.getItem("e2e-user-name") || "";
+        var userRole = sessionStorage.getItem("e2e-user-role") || "";
+        var bar = document.createElement("div");
+        bar.id = "adminTopBar";
+        bar.innerHTML =
+          '<button class="ghost" id="backBtn">← Portal</button>' +
+          '<span class="title">Manage Lists</span>' +
+          '<div class="spacer"></div>' +
+          '<span class="who">' + userName + (userRole ? " · " + userRole : "") + '</span>' +
+          '<button class="signout" id="signoutBtn">Sign out</button>';
+        document.body.appendChild(bar);
+        document.getElementById("backBtn").onclick = function () {
+          window.location.href = "../../project-portal/webapp/index.html";
+        };
+        document.getElementById("signoutBtn").onclick = function () {
+          sessionStorage.removeItem("e2e-auth");
+          sessionStorage.removeItem("e2e-user-name");
+          sessionStorage.removeItem("e2e-user-role");
+          window.location.replace("../../project-portal/webapp/login.html");
+        };
+
+        // ---- OData V4 model against the CAP service, with auth header -----
+        // updateGroupId:"$auto" + $$updateGroupId on the binding = creates /
+        // edits / deletes are submitted to the server automatically (this is
+        // why the previous Save/Add did nothing — no update group was set).
+        var oModel = new ODataModel({
+          serviceUrl: "/governance/",
+          synchronizationMode: "None",
+          operationMode: "Server",
+          autoExpandSelect: true,
+          groupId: "$auto",
+          updateGroupId: "$auto",
+          httpHeaders: { Authorization: sessionStorage.getItem("e2e-auth") }
+        });
+
+        // A JSON model holds the catalogue of lists (left panel) so we can
+        // search / group it without round-trips.
+        var oCatalog = new JSONModel({ lists: LISTS });
+
+        var current = null;          // the selected LISTS entry
+        var oEntriesBinding = null;  // the right-table items binding
+
+        // =================================================================
+        // LEFT PANEL — searchable, grouped catalogue of every list
+        // =================================================================
+        var oListSearch = new SearchField({
+          placeholder: "Search lists…",
+          liveChange: function (e) {
+            var q = (e.getParameter("newValue") || "").trim();
+            var filters = q ? [new Filter({
+              filters: [
+                new Filter("label", FilterOperator.Contains, q),
+                new Filter("hint",  FilterOperator.Contains, q),
+                new Filter("group", FilterOperator.Contains, q)
+              ],
+              and: false
+            })] : [];
+            oCatalogList.getBinding("items").filter(filters);
+          }
+        });
+
+        var oCatalogList = new List({
+          mode: "SingleSelectMaster",
+          includeItemInSelection: true,
+          growing: false,
+          selectionChange: function (e) {
+            var ctx = e.getParameter("listItem").getBindingContext("cat");
+            if (ctx) { selectList(ctx.getObject()); }
+          }
+        });
+        oCatalogList.setModel(oCatalog, "cat");
+        oCatalogList.bindItems({
+          path: "cat>/lists",
+          sorter: [ new Sorter("group", false, true), new Sorter("label", false) ],
+          groupHeaderFactory: function (group) {
+            return new GroupHeaderListItem({ title: group.key, upperCase: false });
+          },
+          template: new StandardListItem({
+            title: "{cat>label}",
+            description: "{cat>hint}",
+            type: "Active",
+            wrapping: true
+          })
+        });
+
+        var oMaster = new Page({
+          showHeader: true,
+          customHeader: new Toolbar({
+            content: [ new Title({ text: "Lists", level: "H3" }) ]
+          }),
+          subHeader: new Toolbar({ content: [ oListSearch ] }),
+          content: [ oCatalogList ]
+        });
+
+        // =================================================================
+        // RIGHT PANEL — entries of the selected list, INLINE editable
+        // =================================================================
+        // Empty-state shown before a list is picked.
+        var oEmpty = new IllustratedMessage({
+          illustrationType: "sapIllus-Tent",
+          title: "Pick a list to manage",
+          description: "Choose a list on the left to view and edit its dropdown values. " +
+                       "Changes are saved instantly and appear in the project forms right away."
+        });
+
+        var oEntrySearch = new SearchField({
+          width: "18rem",
+          placeholder: "Filter entries…",
+          liveChange: function (e) {
+            var q = (e.getParameter("newValue") || "").trim();
+            if (!oEntriesBinding) { return; }
+            var filters = q ? [new Filter({
+              filters: [
+                new Filter("code", FilterOperator.Contains, q),
+                new Filter("name", FilterOperator.Contains, q)
+              ], and: false
+            })] : [];
+            oEntriesBinding.filter(filters);
+          }
+        });
+
+        var oEntriesTable = new Table({
+          inset: false,
+          growing: true,
+          growingThreshold: 200,
+          fixedLayout: false,
+          noData: "No entries yet — use “Add entry” to create the first one.",
+          columns: [
+            new Column({ width: "13rem", header: new Label({ text: "Code" }) }),
+            new Column({ header: new Label({ text: "Display name" }) }),
+            new Column({ width: "9rem",  hAlign: "Center", header: new Label({ text: "Sort order" }) }),
+            new Column({ width: "5rem",  hAlign: "Right",  header: new Label({ text: "" }) })
+          ]
+        });
+
+        // Each row is inline-editable: Name + Sort are live-bound Inputs, the
+        // trash button deletes the row. Code is the key → shown read-only once
+        // saved (a brand-new unsaved row keeps Code editable).
+        function rowTemplate() {
+          return new ColumnListItem({
+            cells: [
+              new Text({ text: "{code}" }),
+              new Input({
+                value: "{name}",
+                placeholder: "Display name",
+                change: autosave
+              }),
+              new StepInput({
+                value: "{sort}",
+                min: 0, max: 9999, step: 10, width: "8rem",
+                change: autosave
+              }),
+              new Button({
+                icon: "sap-icon://delete",
+                type: "Transparent",
+                tooltip: "Delete this entry",
+                press: function (e) {
+                  deleteEntry(e.getSource().getBindingContext());
+                }
+              })
+            ]
+          });
+        }
+
+        // Inline edits submit to $auto automatically; this just surfaces a
+        // toast / error so the manager gets feedback.
+        function autosave() {
+          oModel.submitBatch("$auto").then(function () {
+            MessageToast.show("Saved", { duration: 900 });
+            refreshCount();
+          }).catch(function (err) {
+            MessageBox.error("Could not save: " + msg(err));
+          });
+        }
+
+        function msg(err) {
+          if (!err) { return "unknown error"; }
+          if (err.error && err.error.message) { return err.error.message; }
+          return err.message || String(err);
+        }
+
+        function deleteEntry(ctx) {
+          if (!ctx) { return; }
+          var nm = ctx.getProperty("name") || ctx.getProperty("code");
+          MessageBox.confirm(
+            "Delete “" + nm + "” from " + current.label + "?\n\n" +
+            "If a project still uses this value, keep it to avoid blank dropdowns.",
+            {
+              title: "Delete entry",
+              emphasizedAction: MessageBox.Action.OK,
+              onClose: function (a) {
+                if (a !== MessageBox.Action.OK) { return; }
+                ctx.delete().then(function () {
+                  MessageToast.show("Deleted");
+                  refreshCount();
+                }).catch(function (err) {
+                  MessageBox.error("Could not delete: " + msg(err));
+                });
+              }
+            }
+          );
+        }
+
+        // "Add entry" appends a new editable row at the top via a tiny inline
+        // dialog for the Code (the key), then keeps Name/Sort inline-editable.
+        function addEntry() {
+          if (!current) { return; }
+          var inCode = new Input({ placeholder: "e.g. High  (a short stable key)", maxLength: 60 });
+          var inName = new Input({ placeholder: "What users see in the dropdown" });
+          var dlg = new Dialog({
+            title: "Add entry — " + current.label,
+            contentWidth: "24rem",
+            content: [
+              new SimpleForm({
+                editable: true, layout: "ResponsiveGridLayout",
+                content: [
+                  new Label({ text: "Code" }), inCode,
+                  new Label({ text: "Display name" }), inName
+                ]
+              })
+            ],
+            beginButton: new Button({
+              text: "Create", type: "Emphasized",
+              press: function () {
+                var code = (inCode.getValue() || "").trim();
+                var nm   = (inName.getValue() || "").trim() || code;
+                if (!code) { inCode.setValueState("Error").setValueStateText("Code is required"); return; }
+                // Append at the end of the current list; sort defaults to last*10.
+                // create(initialData, bSkipRefresh, bAtEnd) — bAtEnd=true appends.
+                var nextSort = (oEntriesTable.getItems().length + 1) * 10;
+                oEntriesBinding.create({ code: code, name: nm, sort: nextSort }, false, true);
+                oModel.submitBatch("$auto").then(function () {
+                  MessageToast.show("Added “" + nm + "”");
+                  refreshCount();
+                }).catch(function (err) {
+                  MessageBox.error("Could not add: " + msg(err));
+                });
+                dlg.close();
+              }
+            }),
+            endButton: new Button({ text: "Cancel", press: function () { dlg.close(); } }),
+            afterClose: function () { dlg.destroy(); }
+          });
+          dlg.open();
+        }
+
+        // Header of the right panel: list name + live entry count + actions.
+        var oDetailTitle = new Title({ text: "", level: "H3" });
+        var oCountStatus = new ObjectStatus({ text: "", state: "Information" });
+        var oAddBtn = new Button({ text: "Add entry", icon: "sap-icon://add", type: "Emphasized",
+                                   enabled: false, press: addEntry });
+
+        var oBackBtn = new Button({
+          icon: "sap-icon://nav-back", type: "Transparent", tooltip: "Back to lists",
+          visible: false,   // only useful on narrow / one-column layouts
+          press: function () { oFCL.setLayout("OneColumn"); }
+        });
+        var oDetailHeader = new OverflowToolbar({
+          content: [ oBackBtn, oDetailTitle, oCountStatus, new ToolbarSpacer(), oEntrySearch, oAddBtn ]
+        });
+
+        var oDetailPlaceholderHeader = new Toolbar({ content: [ new Title({ text: "Entries", level: "H3" }) ] });
+        var oDetail = new Page({
+          showHeader: true,
+          customHeader: oDetailPlaceholderHeader,
+          content: [ oEmpty ]
+        });
+
+        // Live entry count from the OData V4 binding's $count (header context).
+        function refreshCount() {
+          if (!oEntriesBinding) { return; }
+          var len = oEntriesBinding.getLength();
+          // getLength() can be a "final-or-not" estimate; prefer $count when ready.
+          try {
+            var hc = oEntriesBinding.getHeaderContext();
+            var c = hc && hc.getProperty("$count");
+            if (typeof c === "number") { len = c; }
+          } catch (e) { /* fall back to getLength */ }
+          oCountStatus.setText(len + (len === 1 ? " value" : " values"));
+        }
+
+        // Switch the right panel to a given list.
+        function selectList(item) {
+          current = item;
+          oDetailTitle.setText(item.label);
+          oCountStatus.setText("loading…");
+          oAddBtn.setEnabled(true);
+          oEntrySearch.setValue("");
+
+          // Make sure the table is in the page (so it inherits the OData
+          // model) and explicitly carry the model before binding — binding a
+          // detached control returns no binding, which previously broke this.
+          oDetail.removeAllContent();
+          if (oDetail.getCustomHeader() !== oDetailHeader) {
+            oDetail.setCustomHeader(oDetailHeader);
+          }
+          oDetail.addContent(oEntriesTable);
+          oEntriesTable.setModel(oModel);
+
+          // (Re)bind the entries fresh so the row template binds cleanly.
+          oEntriesTable.bindItems({
+            path: "/" + item.entity,
+            parameters: { $$updateGroupId: "$auto", $count: true },
+            sorter: [ new Sorter("sort", false), new Sorter("name", false) ],
+            template: rowTemplate()
+          });
+          oEntriesBinding = oEntriesTable.getBinding("items");
+          // OData V4 list bindings fire dataReceived after each fetch — update
+          // the count then. (attachEventOnce / attachChange are not on V4 list
+          // bindings, which is what previously broke selection.)
+          if (oEntriesBinding) {
+            oEntriesBinding.attachDataReceived(refreshCount);
+          }
+
+          // On narrow screens, reveal the detail column.
+          oFCL.setLayout("TwoColumnsMidExpanded");
+        }
+
+        // =================================================================
+        // FLEXIBLE COLUMN LAYOUT — master | detail
+        // =================================================================
+        var oFCL = new FlexibleColumnLayout({
+          layout: "TwoColumnsMidExpanded",
+          backgroundDesign: "Solid"
+        });
+        oFCL.addBeginColumnPage(oMaster);
+        oFCL.addMidColumnPage(oDetail);
+        oFCL.setModel(oModel);
+
+        var uiArea = document.createElement("div");
+        uiArea.id = "uiArea";
+        document.body.appendChild(uiArea);
+        oFCL.placeAt("uiArea");
+      });
+    });
+  </script>
+</head>
+<body class="sapUiBody"></body>
+</html>

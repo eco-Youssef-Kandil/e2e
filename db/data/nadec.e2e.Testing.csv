@@ -1,0 +1,2 @@
+project_ID;testPhase_code;testStatus_code;bugSeverity_code;bugPriority_code;bugStatus_code;testNotes
+PRJ-001;UAT;In Progress;Medium;High;Open;UAT cycle 2 in progress; one open defect pending fix.

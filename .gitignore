@@ -1,0 +1,36 @@
+# ---------------------------------------------------------------------------
+# NADEC E2E Delivery Governance — git ignore
+# ---------------------------------------------------------------------------
+
+# Node dependencies — restored with `npm install`, never committed.
+node_modules/
+
+# Local SQLite database(s) — generated from db/data/*.csv via
+# `npm run deploy:local`. Disposable; the source of truth is the .cds model
+# and the seed CSVs. (On BTP this is HANA, not a file.)
+db/*.db
+db/*.db-shm
+db/*.db-wal
+db/*.sqlite
+
+# CAP / build output
+gen/
+dist/
+*.csn
+
+# Logs & runtime
+*.log
+npm-debug.log*
+.cdsrc-private.json
+
+# Secrets / environment
+.env
+.env.*
+default-env.json
+
+# Editor / OS noise
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.swp

@@ -1,0 +1,10 @@
+code;name;sort
+Business Need;Business Need;10
+Solution Design;Solution Design;20
+Build;Build;30
+Integration;Integration;40
+Quality & Security;Quality & Security;50
+Release Readiness;Release Readiness;60
+Operations;Operations;70
+Live;Live;80
+On Hold;On Hold;90

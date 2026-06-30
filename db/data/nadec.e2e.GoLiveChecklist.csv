@@ -1,0 +1,2 @@
+project_ID;uatApproved_code;securityApproved_code;deploymentPlan_code;rollbackPlan_code;monitoringReady_code;supportAssigned_code;docsCompleted_code;businessSignoff_code;deploymentOwner_code;deploymentDate;rollbackOwner_code;businessSignoffDate;hypercareStart;hypercareEnd;readinessPct
+PRJ-001;Yes;;Yes;;Yes;Yes;;;Ghada Ali;;;;;;0.5

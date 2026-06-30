@@ -1,0 +1,149 @@
+{
+  "name": "nadec-e2e-governance",
+  "version": "0.1.0",
+  "description": "NADEC E2E Delivery Governance — SAP CAP service (SQLite local, HANA on BTP)",
+  "private": true,
+  "dependencies": {
+    "@cap-js/change-tracking": "^2.0.1",
+    "@sap/cds": "^9"
+  },
+  "devDependencies": {
+    "@cap-js/sqlite": "^2",
+    "@sap/cds-dk": "^9"
+  },
+  "scripts": {
+    "start": "cds-serve",
+    "watch": "cds watch",
+    "deploy:local": "cds deploy --to sqlite:db/e2e.db"
+  },
+  "cds": {
+    "requires": {
+      "auth": {
+        "kind": "mocked",
+        "users": {
+          "adel": {
+            "password": "adel",
+            "roles": [
+              "Manager"
+            ],
+            "attr": {
+              "name": "Adel Hirab Alotaibi"
+            }
+          },
+          "rayan": {
+            "password": "rayan",
+            "roles": [
+              "Employee"
+            ],
+            "attr": {
+              "name": "Rayan R. Rozi"
+            }
+          },
+          "youssef": {
+            "password": "youssef",
+            "roles": [
+              "Employee"
+            ],
+            "attr": {
+              "name": "Youssef Kandil"
+            }
+          },
+          "jehad": {
+            "password": "jehad",
+            "roles": [
+              "Employee"
+            ],
+            "attr": {
+              "name": "Jehad Ahmed Mahmoud"
+            }
+          },
+          "abdullah": {
+            "password": "abdullah",
+            "roles": [
+              "Employee"
+            ],
+            "attr": {
+              "name": "Abdullah Alsheri"
+            }
+          },
+          "khalid": {
+            "password": "khalid",
+            "roles": [
+              "Employee"
+            ],
+            "attr": {
+              "name": "Khalid Abdulrahman Alsaggaf"
+            }
+          },
+          "basil": {
+            "password": "basil",
+            "roles": [
+              "Employee"
+            ],
+            "attr": {
+              "name": "Basil Abdulrahman Altasan"
+            }
+          },
+          "ali": {
+            "password": "ali",
+            "roles": [
+              "Employee"
+            ],
+            "attr": {
+              "name": "Ali Atwa"
+            }
+          },
+          "abdulaziz": {
+            "password": "abdulaziz",
+            "roles": [
+              "Employee"
+            ],
+            "attr": {
+              "name": "Abdulaziz Khaleel Alfort"
+            }
+          },
+          "eejaz": {
+            "password": "eejaz",
+            "roles": [
+              "Employee"
+            ],
+            "attr": {
+              "name": "Eejaz M. Ishaq"
+            }
+          },
+          "abdelrahman": {
+            "password": "abdelrahman",
+            "roles": [
+              "Employee"
+            ],
+            "attr": {
+              "name": "Abdelrahman Hussien"
+            }
+          },
+          "ghada": {
+            "password": "ghada",
+            "roles": [
+              "Employee"
+            ],
+            "attr": {
+              "name": "Ghada Ali"
+            }
+          }
+        }
+      },
+      "db": {
+        "kind": "sqlite",
+        "credentials": {
+          "url": "db/e2e.db"
+        }
+      }
+    },
+    "[production]": {
+      "requires": {
+        "db": {
+          "kind": "hana"
+        }
+      }
+    }
+  }
+}

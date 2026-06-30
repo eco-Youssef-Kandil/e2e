@@ -1,0 +1,8 @@
+code;name;sort
+Missing Input;Missing Input;10
+Partially Defined;Partially Defined;20
+Not Started;Not Started;30
+In Progress;In Progress;40
+Completed;Completed;50
+Blocked;Blocked;60
+Not Applicable;Not Applicable;70

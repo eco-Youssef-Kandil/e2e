@@ -1,0 +1,7 @@
+code;name;sort
+DEV;DEV;10
+UAT;UAT;20
+PROD;PROD;30
+DEV/UAT;DEV/UAT;40
+UAT/PROD;UAT/PROD;50
+All Environments;All Environments;60

@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NADEC E2E Governance — Sign in</title>
+  <style>
+    :root {
+      --nadec-blue: #0033A0;
+      --nadec-blue-dark: #002673;
+      --ink: #1d2d3e;
+      --muted: #5b6b7b;
+      --line: #d9e1e8;
+      --bg: #eef3f7;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0; height: 100%;
+      font-family: "72", "72full", Arial, Helvetica, sans-serif;
+      color: var(--ink);
+      background: linear-gradient(135deg, #eef3f7 0%, #dce8f0 100%);
+    }
+    .wrap {
+      min-height: 100%;
+      display: flex; align-items: center; justify-content: center;
+      padding: 24px;
+    }
+    .card {
+      width: 100%; max-width: 400px;
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      box-shadow: 0 10px 30px rgba(13, 40, 70, 0.10);
+      padding: 32px 28px;
+    }
+    .brand {
+      display: flex; align-items: center; gap: 12px; margin-bottom: 4px;
+    }
+    .brand .logo {
+      width: 40px; height: 40px; border-radius: 9px;
+      background: var(--nadec-blue);
+      color: #fff; font-weight: 700; font-size: 18px;
+      display: flex; align-items: center; justify-content: center;
+      letter-spacing: 0.5px;
+    }
+    h1 { font-size: 18px; margin: 0; font-weight: 700; }
+    .sub { color: var(--muted); font-size: 13px; margin: 2px 0 24px; }
+    label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: var(--ink); }
+    select {
+      width: 100%; padding: 11px 12px; font-size: 14px;
+      border: 1px solid var(--line); border-radius: 8px; background: #fff; color: var(--ink);
+      appearance: none; cursor: pointer;
+      background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'><path fill='%235b6b7b' d='M6 8L1.5 3.5h9z'/></svg>");
+      background-repeat: no-repeat; background-position: right 12px center;
+    }
+    select:focus { outline: none; border-color: var(--nadec-blue); box-shadow: 0 0 0 3px rgba(0,51,160,0.15); }
+    .role-hint { font-size: 12px; color: var(--muted); margin-top: 8px; min-height: 16px; }
+    button {
+      width: 100%; margin-top: 22px; padding: 12px;
+      font-size: 15px; font-weight: 600; color: #fff;
+      background: var(--nadec-blue); border: none; border-radius: 8px; cursor: pointer;
+      transition: background 0.15s ease;
+    }
+    button:hover { background: var(--nadec-blue-dark); }
+    button:active { transform: translateY(1px); }
+    .foot { margin-top: 18px; font-size: 11px; color: var(--muted); text-align: center; line-height: 1.5; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <div class="brand">
+        <div class="logo">N</div>
+        <div>
+          <h1>E2E Delivery Governance</h1>
+        </div>
+      </div>
+      <p class="sub">Application Team Portal — select your account to sign in.</p>
+
+      <label for="account">Account</label>
+      <select id="account" autofocus></select>
+      <div class="role-hint" id="roleHint"></div>
+
+      <button id="loginBtn">Sign in</button>
+
+      <p class="foot">Local demo sign-in (mocked users). On BTP this is replaced by SAP IAS / XSUAA.</p>
+    </div>
+  </div>
+
+  <script>
+    // NOTE: this list mirrors the mocked users in package.json (cds.requires.auth.users).
+    // Keep in sync if you add/remove accounts there. username === password for the demo.
+    var ACCOUNTS = [
+      { user: "adel",        pwd: "adel",        name: "Adel Hirab Alotaibi",       role: "Manager"  },
+      { user: "rayan",       pwd: "rayan",       name: "Rayan R. Rozi",             role: "Employee" },
+      { user: "youssef",     pwd: "youssef",     name: "Youssef Kandil",            role: "Employee" },
+      { user: "jehad",       pwd: "jehad",       name: "Jehad Ahmed Mahmoud",       role: "Employee" },
+      { user: "abdullah",    pwd: "abdullah",    name: "Abdullah Alsheri",          role: "Employee" },
+      { user: "khalid",      pwd: "khalid",      name: "Khalid Abdulrahman Alsaggaf", role: "Employee" },
+      { user: "basil",       pwd: "basil",       name: "Basil Abdulrahman Altasan", role: "Employee" },
+      { user: "ali",         pwd: "ali",         name: "Ali Atwa",                  role: "Employee" },
+      { user: "abdulaziz",   pwd: "abdulaziz",   name: "Abdulaziz Khaleel Alfort",  role: "Employee" },
+      { user: "eejaz",       pwd: "eejaz",       name: "Eejaz M. Ishaq",            role: "Employee" },
+      { user: "abdelrahman", pwd: "abdelrahman", name: "Abdelrahman Hussien",       role: "Employee" },
+      { user: "ghada",       pwd: "ghada",       name: "Ghada Ali",                 role: "Employee" }
+    ];
+
+    var sel = document.getElementById("account");
+    var hint = document.getElementById("roleHint");
+
+    ACCOUNTS.forEach(function (a, i) {
+      var opt = document.createElement("option");
+      opt.value = String(i);
+      opt.textContent = a.name + " — " + a.role;
+      sel.appendChild(opt);
+    });
+
+    function updateHint() {
+      var a = ACCOUNTS[Number(sel.value)];
+      hint.textContent = a.role === "Manager"
+        ? "Can create projects and assign IT Owners."
+        : "Can edit assigned projects (no project creation).";
+    }
+    sel.addEventListener("change", updateHint);
+    updateHint();
+
+    function doLogin() {
+      var a = ACCOUNTS[Number(sel.value)];
+      var token = "Basic " + btoa(a.user + ":" + a.pwd);
+      sessionStorage.setItem("e2e-auth", token);
+      sessionStorage.setItem("e2e-user-name", a.name);
+      sessionStorage.setItem("e2e-user-role", a.role);
+      window.location.href = "index.html";
+    }
+    document.getElementById("loginBtn").addEventListener("click", doLogin);
+    sel.addEventListener("keydown", function (e) { if (e.key === "Enter") doLogin(); });
+  </script>
+</body>
+</html>
