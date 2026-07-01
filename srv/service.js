@@ -47,9 +47,60 @@ module.exports = class GovernanceService extends cds.ApplicationService {
       }
     })
 
+    // --- Ownership: employees may only EDIT their own projects ---------------
+    // Everyone can READ every project, but an employee can enter edit mode only
+    // on projects where they are the IT Owner. The Manager can edit anything.
+    // We block at draftEdit ("Edit" button) so a non-owner never gets an
+    // editable draft — cleaner than failing later at save.
+    //
+    // Identity → owner match: each mocked user's attr.name (e.g. "Abdullah
+    // Alsheri") equals the project's itOwner_code (the Employees code list is
+    // keyed by the person's full name). On BTP the IdP supplies the same name.
+    const ownsProject = (req, itOwnerCode) => {
+      if (req.user.is('Manager')) return true
+      const me = (req.user.attr && req.user.attr.name) || req.user.id
+      return !!itOwnerCode && !!me && itOwnerCode === me
+    }
+
+    this.before('NEW', 'Projects.drafts', (req) => {
+      // Belt-and-braces: creating a brand-new project draft is Manager-only
+      // (the @restrict already blocks CREATE, this keeps the message friendly).
+      if (!req.user.is('Manager')) {
+        req.reject(403, 'Only the manager can create new projects.')
+      }
+    })
+
+    this.before('EDIT', 'Projects', async (req) => {
+      // draftEdit on an ACTIVE project → check ownership before a draft is made.
+      const key = req.params && req.params[req.params.length - 1]
+      const id = key && (key.ID || key.id || key)
+      if (!id) return
+      const proj = await cds.tx(req).run(
+        SELECT.one.from('nadec.e2e.Projects').columns('itOwner_code').where({ ID: id })
+      )
+      if (proj && !ownsProject(req, proj.itOwner_code)) {
+        req.reject(403,
+          'Only the assigned IT Owner (or the Manager) can edit this project.')
+      }
+    })
+
     this.before('SAVE', 'Projects', async (req) => {
       const p = req.data
       const tx = cds.tx(req)
+
+      // --- Only the Manager may change the IT Owner --------------------------
+      // Employees can fill their project's sections but must not reassign it.
+      if (!req.user.is('Manager') && p.ID) {
+        const before = await tx.run(
+          SELECT.one.from('nadec.e2e.Projects').columns('itOwner_code').where({ ID: p.ID })
+        )
+        const incoming = p.itOwner_code !== undefined
+          ? p.itOwner_code
+          : (p.itOwner && p.itOwner.code)
+        if (incoming !== undefined && before && incoming !== before.itOwner_code) {
+          req.reject(403, 'Only the manager can change the IT Owner of a project.')
+        }
+      }
 
       // --- Utilization % (on the master row) ---
       // = MIN(1, (users/USERS_DENOM)*0.5 + (requests/REQS_DENOM)*0.5);
