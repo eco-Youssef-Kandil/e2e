@@ -53,6 +53,15 @@
         "sap.fe.templates": {}
       }
     },
+    "extends": {
+      "extensions": {
+        "sap.ui.controllerExtensions": {
+          "sap.fe.templates.ObjectPage.ObjectPageController": {
+            "controllerName": "projectportal.ext.ObjectPageExt"
+          }
+        }
+      }
+    },
     "models": {
       "i18n": {
         "type": "sap.ui.model.resource.ResourceModel",
@@ -72,7 +81,9 @@
       }
     },
     "resources": {
-      "css": []
+      "css": [
+        { "uri": "css/style.css" }
+      ]
     },
     "routing": {
       "routes": [
@@ -95,7 +106,7 @@
           "options": {
             "settings": {
               "entitySet": "Projects",
-              "variantManagement": "Page",
+              "variantManagement": "None",
               "initialLoad": true,
               "controlConfiguration": {
                 "@com.sap.vocabularies.UI.v1.SelectionFields": {
@@ -105,10 +116,9 @@
                 },
                 "@com.sap.vocabularies.UI.v1.LineItem": {
                   "tableSettings": {
-                    "type": "GridTable",
+                    "type": "ResponsiveTable",
                     "personalization": true,
-                    "enableExport": true,
-                    "widthIncludingColumnHeader": true
+                    "enableExport": true
                   }
                 }
               },
@@ -129,7 +139,8 @@
           "options": {
             "settings": {
               "entitySet": "Projects",
-              "editableHeaderContent": false
+              "editableHeaderContent": false,
+              "sectionLayout": "Page"
             }
           }
         }

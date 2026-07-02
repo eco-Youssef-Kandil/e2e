@@ -1,6 +1,7 @@
 using nadec.e2e as my from '../db/schema';
-using nadec.e2e.EmployeeAllocation as EmployeeAllocationView from './views';
-using nadec.e2e.ActionRequired     as ActionRequiredView     from './views';
+using nadec.e2e.EmployeeAllocation     as EmployeeAllocationView     from './views';
+using nadec.e2e.ActionRequired         as ActionRequiredView         from './views';
+using nadec.e2e.ProjectCompleteness    as ProjectCompletenessView    from './views';
 
 /**
  * The application portal service.
@@ -18,7 +19,14 @@ service GovernanceService @(path: '/governance') {
     { grant: ['READ', 'UPDATE'],   to: 'authenticated-user' },
     { grant: ['CREATE', 'DELETE'], to: 'Manager' }
   ])
-  entity Projects        as projection on my.Projects;
+  // Live data-completeness (per project + per section) is exposed as the
+  // `completeness` association so the List Report column and the Object Page
+  // "Completeness" facet can bind to completeness/... without storing anything.
+  entity Projects        as select from my.Projects
+    mixin {
+      completeness : Association to ProjectCompleteness on completeness.ID = ID;
+    }
+    into { *, completeness };
 
   entity BusinessInput   as projection on my.BusinessInput;
   entity Readiness       as projection on my.Readiness;
@@ -28,8 +36,12 @@ service GovernanceService @(path: '/governance') {
   entity Risks           as projection on my.Risks;
 
   // ---- Dashboards (computed, read-only) ----
-  @readonly entity EmployeeAllocation as projection on EmployeeAllocationView;
-  @readonly entity ActionRequired     as projection on ActionRequiredView;
+  @readonly entity EmployeeAllocation    as projection on EmployeeAllocationView;
+  @readonly entity ActionRequired        as projection on ActionRequiredView;
+
+  // Data completeness — per project (6 section % + overall). The portfolio-wide
+  // averages are computed client-side in the Portfolio Health dashboard.
+  @readonly entity ProjectCompleteness   as projection on ProjectCompletenessView;
 
   // ---- Value-help lookups ----
   // Everyone reads them (they feed the dropdowns / value helps); only the

@@ -1,0 +1,30 @@
+/* ------------------------------------------------------------------------ */
+/* Completeness progress bars (List Report column + Object Page) are native    */
+/* sap.m.ProgressIndicator controls; their red→green colour is applied at      */
+/* runtime in Component.js (paintBars, by % from aria-valuenow). Give them a    */
+/* slightly rounded fill with a smooth transition.                             */
+/* ------------------------------------------------------------------------ */
+.sapMListTbl .sapMPIBar {
+  border-radius: 0.5rem 0 0 0.5rem;
+  transition: width 0.4s ease, background-color 0.3s ease;
+}
+
+/* ------------------------------------------------------------------------ */
+/* Object Page bottom — the big empty grey void after the last section is an   */
+/* unclassed <div style="height:NNNpx"> spacer that Fiori Elements injects so   */
+/* the final section can scroll under the anchor bar. With our short sections   */
+/* it becomes a huge ugly blank area. We collapse it (below) and give the last  */
+/* section a small, consistent bottom pad.                                     */
+/* ------------------------------------------------------------------------ */
+.sapUxAPObjectPageSection:last-of-type {
+  padding-bottom: 1.5rem;
+}
+/* The unclassed trailing spacer div FE sizes with an inline height, as a direct */
+/* child of .sapUxAPObjectPageScroll. An !important rule overrides the inline     */
+/* style every frame, so FE cannot re-grow it (a JS trim loses that race). It     */
+/* stays just tall enough to look intentional instead of a full-screen void.     */
+.sapUxAPObjectPageScroll > div:not([class]),
+.sapUxAPObjectPageScroll > div[class=""] {
+  height: 24px !important;
+  min-height: 24px !important;
+}

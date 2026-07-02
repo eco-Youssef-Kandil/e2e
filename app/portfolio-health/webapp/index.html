@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NADEC E2E — Portfolio Health</title>
+
+  <style>
+    html, body { height: 100%; margin: 0; box-sizing: border-box;
+                 font-family: '72','72full',Arial,sans-serif; background: #eaecee; }
+    #phTopBar {
+      position: fixed; top: 0; left: 0; right: 0; height: 48px; z-index: 1000;
+      display: flex; align-items: center; gap: 12px; padding: 0 16px; box-sizing: border-box;
+      background: linear-gradient(135deg, #0033A0, #002673);
+      color: #fff; box-shadow: 0 2px 4px rgba(0,0,0,0.18); font-size: 13px;
+    }
+    #phTopBar .ghost {
+      padding: 5px 12px; font-size: 13px; font-weight: 600; color: #fff; cursor: pointer;
+      background: rgba(255,255,255,0.14); border: 1px solid rgba(255,255,255,0.5); border-radius: 6px;
+    }
+    #phTopBar .title { font-weight: 600; font-size: 15px; letter-spacing: 0.3px; white-space: nowrap; }
+    #phTopBar .spacer { flex: 1 1 auto; }
+    #phTopBar .who { opacity: 0.85; white-space: nowrap; }
+    #phTopBar .signout {
+      padding: 5px 14px; font-size: 13px; font-weight: 600; color: #0033A0; cursor: pointer;
+      background: #fff; border: 1px solid #fff; border-radius: 6px;
+    }
+    #uiArea { padding-top: 48px; height: 100%; box-sizing: border-box; }
+  </style>
+
+  <script>
+    // Everyone signed in may view the portfolio health (employees see it too, to
+    // stay motivated). Only require that SOMEONE is signed in.
+    (function () {
+      if (!sessionStorage.getItem("e2e-auth")) {
+        window.location.replace("../../project-portal/webapp/login.html");
+      }
+    })();
+  </script>
+
+  <script
+    id="sap-ui-bootstrap"
+    src="https://ui5.sap.com/1.145.0/resources/sap-ui-core.js"
+    data-sap-ui-theme="sap_horizon"
+    data-sap-ui-libs="sap.m,sap.ui.core,sap.f,sap.ui.layout,sap.suite.ui.microchart"
+    data-sap-ui-compatVersion="edge"
+    data-sap-ui-async="true"
+    data-sap-ui-frameOptions="trusted">
+  </script>
+
+  <script>
+    // Section metadata: the 6 scored sections, in the order they appear on a
+    // project. `key` matches the ProjectCompleteness column names.
+    var SECTIONS = [
+      { key: "generalPct",   label: "General Info" },
+      { key: "businessPct",  label: "Business Input" },
+      { key: "readinessPct", label: "E2E Readiness" },
+      { key: "solutionPct",  label: "Solution Details" },
+      { key: "goLivePct",    label: "Go-Live Checklist" },
+      { key: "testingPct",   label: "Testing / QA" }
+    ];
+
+    function bandState(pct) {
+      // Same thresholds as the object page: <40 red, 40–79 amber, >=80 green.
+      if (pct >= 80) { return "Success"; }
+      if (pct >= 40) { return "Warning"; }
+      return "Error";
+    }
+
+    sap.ui.getCore().attachInit(function () {
+      sap.ui.require([
+        "sap/ui/model/odata/v4/ODataModel",
+        "sap/ui/model/json/JSONModel",
+        "sap/ui/model/Sorter",
+        "sap/m/MessageBox",
+        "sap/m/Page",
+        "sap/m/Panel",
+        "sap/m/VBox",
+        "sap/m/HBox",
+        "sap/m/Title",
+        "sap/m/Text",
+        "sap/m/Label",
+        "sap/m/ProgressIndicator",
+        "sap/m/Table",
+        "sap/m/Column",
+        "sap/m/ColumnListItem",
+        "sap/m/ObjectIdentifier",
+        "sap/m/Link",
+        "sap/ui/core/HTML",
+        "sap/suite/ui/microchart/RadialMicroChart"
+      ], function (ODataModel, JSONModel, Sorter, MessageBox, Page, Panel, VBox, HBox, Title, Text,
+                   Label, ProgressIndicator, Table, Column, ColumnListItem, ObjectIdentifier, Link,
+                   HTML, RadialMicroChart) {
+        "use strict";
+
+        // ---- Brand top bar ----------------------------------------------
+        var userName = sessionStorage.getItem("e2e-user-name") || "";
+        var userRole = sessionStorage.getItem("e2e-user-role") || "";
+        var bar = document.createElement("div");
+        bar.id = "phTopBar";
+        bar.innerHTML =
+          '<button class="ghost" id="backBtn">← Portal</button>' +
+          '<span class="title">Portfolio Health</span>' +
+          '<div class="spacer"></div>' +
+          '<span class="who">' + userName + (userRole ? " · " + userRole : "") + '</span>' +
+          '<button class="signout" id="signoutBtn">Sign out</button>';
+        document.body.appendChild(bar);
+        document.getElementById("backBtn").onclick = function () {
+          window.location.href = "../../project-portal/webapp/index.html";
+        };
+        document.getElementById("signoutBtn").onclick = function () {
+          sessionStorage.removeItem("e2e-auth");
+          sessionStorage.removeItem("e2e-user-name");
+          sessionStorage.removeItem("e2e-user-role");
+          window.location.replace("../../project-portal/webapp/login.html");
+        };
+
+        // ---- OData V4 model with auth header -----------------------------
+        var oModel = new ODataModel({
+          serviceUrl: "/governance/",
+          synchronizationMode: "None",
+          operationMode: "Server",
+          httpHeaders: { Authorization: sessionStorage.getItem("e2e-auth") }
+        });
+
+        // ---- Controls we update once data arrives ------------------------
+        var oGauge = new RadialMicroChart({ size: "L", percentage: 0, valueColor: "Neutral" });
+        var oGaugeCaption = new Title({ text: "Loading…", level: "H2" });
+        var oGaugeSub = new Text({ text: "" });
+
+        var oSectionsBox = new VBox({ width: "100%" });   // filled after load
+        var oWorstTable = new Table({
+          inset: false, growing: true, growingThreshold: 50,
+          columns: [
+            new Column({ header: new Label({ text: "Project" }) }),
+            new Column({ header: new Label({ text: "IT Owner" }), minScreenWidth: "Tablet", demandPopin: true }),
+            new Column({ width: "16rem", header: new Label({ text: "Completeness" }) })
+          ]
+        });
+
+        // ---- Load all per-project completeness rows, aggregate client-side
+        oModel.bindList("/ProjectCompleteness").requestContexts(0, 1000).then(function (contexts) {
+          var rows = contexts.map(function (c) { return c.getObject(); });
+          if (!rows.length) { oGaugeCaption.setText("No projects yet"); return; }
+
+          // Portfolio averages (equal weight per project).
+          var n = rows.length;
+          var sum = { overallPct: 0 };
+          SECTIONS.forEach(function (s) { sum[s.key] = 0; });
+          rows.forEach(function (r) {
+            sum.overallPct += Number(r.overallPct) || 0;
+            SECTIONS.forEach(function (s) { sum[s.key] += Number(r[s.key]) || 0; });
+          });
+          var avgOverall = Math.round((sum.overallPct / n) * 100) / 100;
+
+          // Gauge.
+          oGauge.setPercentage(avgOverall);
+          oGauge.setValueColor(avgOverall >= 80 ? "Good" : avgOverall >= 40 ? "Critical" : "Error");
+          oGaugeCaption.setText("Portfolio is " + avgOverall + "% complete");
+          oGaugeSub.setText(n + " projects · average across all filled-in details");
+
+          // Section averages, sorted emptiest-first so the worst is on top.
+          var sectionAvgs = SECTIONS.map(function (s) {
+            return { label: s.label, pct: Math.round((sum[s.key] / n) * 100) / 100 };
+          }).sort(function (a, b) { return a.pct - b.pct; });
+
+          sectionAvgs.forEach(function (s, i) {
+            var row = new HBox({
+              alignItems: "Center",
+              width: "100%",
+              items: [
+                new Label({ text: s.label, width: "12rem",
+                  design: i === 0 ? "Bold" : "Standard" }),
+                new ProgressIndicator({
+                  percentValue: s.pct, displayValue: s.pct + "%", showValue: true,
+                  state: bandState(s.pct), width: "100%", height: "1.5rem"
+                }).addStyleClass("sapUiTinyMarginBegin")
+              ]
+            }).addStyleClass("sapUiTinyMarginBottom");
+            oSectionsBox.addItem(row);
+          });
+
+          // Worst projects table (least complete first) with deep links.
+          rows.sort(function (a, b) { return (Number(a.overallPct)||0) - (Number(b.overallPct)||0); });
+          rows.slice(0, 15).forEach(function (r) {
+            var pct = Number(r.overallPct) || 0;
+            var link = new Link({
+              text: r.name || r.ID,
+              href: "../../project-portal/webapp/index.html#/Projects(ID='" + r.ID + "',IsActiveEntity=true)"
+            });
+            oWorstTable.addItem(new ColumnListItem({
+              cells: [
+                new VBox({ items: [ link, new Text({ text: r.ID }).addStyleClass("sapUiTinyText") ] }),
+                new Text({ text: r.itOwner || "—" }),
+                new ProgressIndicator({ percentValue: pct, displayValue: pct + "%",
+                  showValue: true, state: bandState(pct), width: "100%" })
+              ]
+            }));
+          });
+        }).catch(function (err) {
+          MessageBox.error("Could not load completeness data: " +
+            (err && err.message ? err.message : "unknown error"));
+        });
+
+        // ---- Layout ------------------------------------------------------
+        var gaugePanel = new Panel({
+          headerText: "Overall portfolio completeness",
+          content: [ new HBox({
+            alignItems: "Center", justifyContent: "Start",
+            items: [
+              new VBox({ width: "160px", alignItems: "Center", items: [ oGauge ] }),
+              new VBox({ items: [ oGaugeCaption, oGaugeSub ] }).addStyleClass("sapUiMediumMarginBegin")
+            ]
+          }).addStyleClass("sapUiSmallMargin") ]
+        }).addStyleClass("sapUiResponsiveMargin");
+
+        var sectionsPanel = new Panel({
+          headerText: "Which sections are emptiest? (across all projects — emptiest first)",
+          content: [ oSectionsBox ]
+        }).addStyleClass("sapUiResponsiveMargin");
+
+        var worstPanel = new Panel({
+          headerText: "Projects needing the most work",
+          content: [ oWorstTable ]
+        }).addStyleClass("sapUiResponsiveMargin");
+
+        var page = new Page({ showHeader: false, content: [ gaugePanel, sectionsPanel, worstPanel ] });
+        page.setModel(oModel);
+
+        var uiArea = document.createElement("div");
+        uiArea.id = "uiArea";
+        document.body.appendChild(uiArea);
+        page.placeAt("uiArea");
+      });
+    });
+  </script>
+</head>
+<body class="sapUiBody"></body>
+</html>

@@ -105,6 +105,15 @@ annotate GovernanceService.Projects with @(
     workCategory_code
   ],
 
+  // The custom "Completeness" column reads completeness/overallPct, but FE does
+  // not auto-$expand an association just because a custom-column fragment binds
+  // to it. RequestAtLeast forces the List Report query to expand + select it, so
+  // the coloured bars have data. (VisualizationType is required for RequestAtLeast.)
+  UI.PresentationVariant : {
+    Visualizations : [ '@UI.LineItem' ],
+    RequestAtLeast : [ completeness.overallPct ]
+  },
+
   // Table columns on the List Report.
   // The first four (High importance) show by default; the rest (Low) are
   // hidden by default but available to add via the table's Settings (gear)
@@ -112,6 +121,14 @@ annotate GovernanceService.Projects with @(
   UI.LineItem : [
     { $Type: 'UI.DataField', Value: ID,                 Label: 'ID',                @UI.Importance: #High },
     { $Type: 'UI.DataField', Value: name,               Label: 'Project',           @UI.Importance: #High },
+    // Completeness — a native annotation column (progress bar) so it is a
+    // first-class DEFAULT column that variant management / personalization can
+    // never silently drop (the earlier manifest custom column did not survive
+    // refresh + re-login). The 5-colour red→green shading is applied at runtime
+    // in Component.js (_guardAuditTab → paintBars, which colours every .sapMPI
+    // progress bar by its %), matching the Object Page bars.
+    { $Type: 'UI.DataFieldForAnnotation', Target: 'completeness/@UI.DataPoint#Overall',
+      Label: 'Completeness', @UI.Importance: #High },
     { $Type: 'UI.DataField', Value: itOwner_code,       Label: 'IT Owner',          @UI.Importance: #High },
     { $Type: 'UI.DataField', Value: phase_code,         Label: 'Phase',             @UI.Importance: #High },
     { $Type: 'UI.DataField', Value: priority_code,      Label: 'Priority',          @UI.Importance: #Low },
@@ -122,15 +139,24 @@ annotate GovernanceService.Projects with @(
     { $Type: 'UI.DataField', Value: businessOwner_code, Label: 'Business Owner',    @UI.Importance: #Low }
   ],
 
-  // Object Page — one tab (facet) per Excel section
+  // Header shows the overall completeness right under the project title.
+  UI.HeaderFacets : [
+    { $Type: 'UI.ReferenceFacet', ID: 'HdrCompleteness', Label: 'Completeness',
+      Target: 'completeness/@UI.DataPoint#Overall' }
+  ],
+
+  // Object Page — Completeness first (so the owner sees the gaps), then one tab
+  // (facet) per Excel section.
   UI.Facets : [
+    { $Type: 'UI.ReferenceFacet', ID: 'Completeness', Label: 'Completeness',
+      Target: 'completeness/@UI.FieldGroup#Sections' },
     { $Type: 'UI.ReferenceFacet', ID: 'General',   Label: 'General Info',      Target: '@UI.FieldGroup#General' },
     { $Type: 'UI.ReferenceFacet', ID: 'BizInput',  Label: 'Business Input',    Target: 'businessInput/@UI.FieldGroup#BusinessInput' },
     { $Type: 'UI.ReferenceFacet', ID: 'Readiness', Label: 'E2E Readiness',     Target: 'readiness/@UI.FieldGroup#Readiness' },
     { $Type: 'UI.ReferenceFacet', ID: 'Solution',  Label: 'Solution Details',  Target: 'solutionDetails/@UI.FieldGroup#Solution' },
     { $Type: 'UI.ReferenceFacet', ID: 'GoLive',    Label: 'Go-Live Checklist', Target: 'goLive/@UI.FieldGroup#GoLive' },
     { $Type: 'UI.ReferenceFacet', ID: 'Testing',   Label: 'Testing / QA',      Target: 'testing/@UI.FieldGroup#Testing' },
-    { $Type: 'UI.ReferenceFacet', ID: 'RisksTab',  Label: 'Risks',             Target: 'risks/@UI.LineItem' }
+    { $Type: 'UI.ReferenceFacet', ID: 'RisksTab',  Label: 'Risk / Dependency',  Target: 'risks/@UI.LineItem' }
   ],
 
   UI.FieldGroup #General : { Data : [
@@ -308,8 +334,8 @@ annotate GovernanceService.Testing with {
 // ===========================================================================
 annotate GovernanceService.Risks with @(
   UI.HeaderInfo : {
-    TypeName       : 'Risk',
-    TypeNamePlural : 'Risks',
+    TypeName       : 'Risk / Dependency',
+    TypeNamePlural : 'Risks / Dependencies',
     Title          : { $Type: 'UI.DataField', Value: description }
   },
   UI.LineItem : [
@@ -378,10 +404,71 @@ annotate GovernanceService.EmployeeAllocation with @(
 );
 
 // ===========================================================================
+// DATA COMPLETENESS — how much of a project is filled in (progress bars).
+// Rendered as native #Progress DataPoints (0..100), so no chart library is
+// needed. Shown as a List Report column, an Object Page header number, and an
+// Object Page "Completeness" facet that breaks the score down by section — so
+// the IT Owner sees exactly which tab still needs work.
+// ===========================================================================
+annotate GovernanceService.ProjectCompleteness with @(
+  UI.DataPoint #Overall  : { Value: overallPct,  Title: 'Overall Complete',   TargetValue: 100, Visualization: #Progress,
+                             CriticalityCalculation: {
+                               ImprovementDirection    : #Maximize,
+                               DeviationRangeLowValue  : 40,   // < 40  → red
+                               ToleranceRangeLowValue  : 80    // 40–79 → amber, ≥ 80 → green
+                             } },
+  UI.DataPoint #General  : { Value: generalPct,  Title: 'General Info',       TargetValue: 100, Visualization: #Progress },
+  UI.DataPoint #Business : { Value: businessPct, Title: 'Business Input',      TargetValue: 100, Visualization: #Progress },
+  UI.DataPoint #Readiness: { Value: readinessPct,Title: 'E2E Readiness',       TargetValue: 100, Visualization: #Progress },
+  UI.DataPoint #Solution : { Value: solutionPct, Title: 'Solution Details',    TargetValue: 100, Visualization: #Progress },
+  UI.DataPoint #GoLive   : { Value: goLivePct,   Title: 'Go-Live Checklist',   TargetValue: 100, Visualization: #Progress },
+  UI.DataPoint #Testing  : { Value: testingPct,  Title: 'Testing / QA',        TargetValue: 100, Visualization: #Progress },
+
+  // The per-section breakdown shown on the Object Page "Completeness" facet.
+  UI.FieldGroup #Sections : { Data : [
+    { $Type: 'UI.DataFieldForAnnotation', Target: '@UI.DataPoint#General',   Label: 'General Info' },
+    { $Type: 'UI.DataFieldForAnnotation', Target: '@UI.DataPoint#Business',  Label: 'Business Input' },
+    { $Type: 'UI.DataFieldForAnnotation', Target: '@UI.DataPoint#Readiness', Label: 'E2E Readiness' },
+    { $Type: 'UI.DataFieldForAnnotation', Target: '@UI.DataPoint#Solution',  Label: 'Solution Details' },
+    { $Type: 'UI.DataFieldForAnnotation', Target: '@UI.DataPoint#GoLive',    Label: 'Go-Live Checklist' },
+    { $Type: 'UI.DataFieldForAnnotation', Target: '@UI.DataPoint#Testing',   Label: 'Testing / QA' }
+  ]}
+);
+
+annotate GovernanceService.ProjectCompleteness with {
+  overallPct   @Common.Label: 'Overall Complete'  @Measures.Unit: '%';
+  generalPct   @Common.Label: 'General Info'       @Measures.Unit: '%';
+  businessPct  @Common.Label: 'Business Input'     @Measures.Unit: '%';
+  readinessPct @Common.Label: 'E2E Readiness'      @Measures.Unit: '%';
+  solutionPct  @Common.Label: 'Solution Details'   @Measures.Unit: '%';
+  goLivePct    @Common.Label: 'Go-Live Checklist'  @Measures.Unit: '%';
+  testingPct   @Common.Label: 'Testing / QA'       @Measures.Unit: '%';
+}
+
+// ===========================================================================
 // CODE LISTS — column labels for the "Manage Lists" admin page (freestyle UI5
 // table reads code / name / sort directly; these just give clean headers).
 // ===========================================================================
 annotate nadec.e2e.lookup.codelist with {
   code @Common.Label: 'Code';
   sort @Common.Label: 'Sort Order';
+}
+
+// ===========================================================================
+// CHANGE HISTORY (audit log) — column labels for the Object Page table.
+// @cap-js/change-tracking auto-generates the "Change History" facet + table;
+// we only give its columns friendly labels here (When / Changed By / Section /
+// Field / Change / Old / New). The table layout itself is the plugin's; the
+// oversized empty area below it is trimmed via CSS in css/style.css.
+// (We deliberately do NOT re-annotate the plugin's LineItem — it is injected
+// after this file compiles, so overriding it here only warns and is ignored.)
+// ===========================================================================
+annotate GovernanceService.ChangeView with {
+  createdAt         @Common.Label: 'When';
+  createdBy         @Common.Label: 'Changed By';
+  entityLabel       @Common.Label: 'Section';
+  attributeLabel    @Common.Label: 'Field';
+  modificationLabel @Common.Label: 'Change';
+  valueChangedFrom  @Common.Label: 'Old Value';
+  valueChangedTo    @Common.Label: 'New Value';
 }

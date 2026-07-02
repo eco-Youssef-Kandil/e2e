@@ -24,18 +24,48 @@ sap.ui.define([
 
       AppComponent.prototype.init.apply(this, arguments);
 
+      this._resetStaleTableLayout();
       this._addTopBar();
       this._guardAuditTab();
     },
 
-    // The audit log ("Change History") is Manager-only. The data is already
-    // protected server-side (employees get 403), so here we simply hide the
-    // tab from non-managers on the Object Page so they never see a dead tab.
+    // Keep the table on its annotation default every load. Variant management
+    // is OFF (manifest: variantManagement "None"), but Fiori Elements' flexi-
+    // bility layer (sap.ui.fl / LREP / p13n) can still cache a stale column
+    // layout in local/sessionStorage that hid the new "Completeness" column and
+    // reapplied it on refresh + after re-login. We clear those cache keys on
+    // EVERY load so the table always renders the default —
+    // ID · Project · Completeness · IT Owner · Phase. There is no saved user
+    // variant to preserve, so this is safe. Our own e2e-* keys are left intact.
+    _resetStaleTableLayout: function () {
+      try {
+        [localStorage, sessionStorage].forEach(function (store) {
+          if (!store) { return; }
+          var kill = [];
+          for (var i = 0; i < store.length; i++) {
+            var k = store.key(i);
+            if (!k || k.indexOf("e2e-") === 0) { continue; } // keep our auth keys
+            if (/flex|variant|p13n|personali|sap\.ui\.fl|LREP/i.test(k)) {
+              kill.push(k);
+            }
+          }
+          kill.forEach(function (k) { store.removeItem(k); });
+        });
+      } catch (e) { /* storage disabled — nothing to clean */ }
+    },
+
+    // Two DOM tweaks that must keep re-applying as Fiori Elements re-renders
+    // (on navigation / scroll / section lazy-load), both run from ONE
+    // rAF-debounced MutationObserver so they never storm the main thread:
+    //   1. Hide the Manager-only "Change History" tab for non-managers.
+    //   2. Colour every completeness progress bar (header + section bars on the
+    //      Object Page) red → green by %, matching the List Report column.
+    //      FE's native DataPoint bars render neutral grey otherwise.
     _guardAuditTab: function () {
-      if (sessionStorage.getItem("e2e-user-role") === "Manager") {
-        return; // managers keep the tab
-      }
+      var isManager = sessionStorage.getItem("e2e-user-role") === "Manager";
+
       var hide = function () {
+        if (isManager) { return; } // managers keep the Change History tab
         // The Object Page renders its sections as an IconTabBar (.sapMITBItem).
         // Hide the tab whose text is exactly "Change History", plus the matching
         // section in the "expanded" (anchor) layout, for non-managers.
@@ -54,11 +84,53 @@ sap.ui.define([
           }
         });
       };
+
+      // Colour every progress bar on the page by its percentage. We read the
+      // rendered aria-valuenow (0..100) that UI5 puts on the ProgressIndicator,
+      // so it works for both the header "Overall Complete" and the 6 section
+      // bars — none of which we could reach with an annotation-side colour.
+      var bandColor = function (v) {
+        return v < 20 ? "#d20a0a"        // red
+             : v < 40 ? "#e8730c"        // orange
+             : v < 60 ? "#e0a800"        // yellow
+             : v < 80 ? "#7dbd3a"        // light green
+             : "#0a7d33";                // green
+      };
+      var paintBars = function () {
+        var pis = document.querySelectorAll(".sapMPI");
+        pis.forEach(function (pi) {
+          var now = pi.getAttribute("aria-valuenow");
+          if (now === null) {
+            var inner = pi.querySelector("[aria-valuenow]");
+            now = inner && inner.getAttribute("aria-valuenow");
+          }
+          if (now === null || now === undefined || now === "") { return; }
+          var v = Number(now);
+          if (isNaN(v)) { return; }
+          var bar = pi.querySelector(".sapMPIBar");
+          if (bar) { bar.style.backgroundColor = bandColor(v); }
+        });
+      };
+
+      var apply = function () { hide(); paintBars(); };
+
       // Run now and keep enforcing it as the user navigates between projects
-      // (the Object Page re-renders its anchor bar on each navigation).
-      hide();
-      var mo = new MutationObserver(function () { hide(); });
-      mo.observe(document.body, { childList: true, subtree: true });
+      // (the Object Page re-renders its bars/tab bar on each navigation).
+      //
+      // IMPORTANT: coalesce mutations with requestAnimationFrame so we run at
+      // most once per frame. Running the full-DOM queries on EVERY mutation
+      // stormed the main thread during scroll / section lazy-load and made the
+      // Object Page feel janky and "empty then loads".
+      apply();
+      var scheduled = false;
+      var run = function () { scheduled = false; apply(); };
+      var root = document.getElementById("rootComponentContainer") || document.body;
+      var mo = new MutationObserver(function () {
+        if (scheduled) { return; }
+        scheduled = true;
+        window.requestAnimationFrame(run);
+      });
+      mo.observe(root, { childList: true, subtree: true });
     },
 
     // A solid branded header bar at the very top of the page. It is a real
@@ -107,7 +179,17 @@ sap.ui.define([
       var spacer = document.createElement("div");
       spacer.style.cssText = "flex:1 1 auto;";
 
-      // Right: (manager-only) Manage Lists + user + sign out
+      // Right: Portfolio Health (all roles) + (manager-only) Manage Lists + user
+      var health = document.createElement("button");
+      health.id = "e2ePortfolioHealth";
+      health.textContent = "Portfolio Health";
+      health.style.cssText =
+        "padding:5px 12px;font-size:13px;font-weight:600;color:#fff;cursor:pointer;" +
+        "background:rgba(255,255,255,0.14);border:1px solid rgba(255,255,255,0.5);border-radius:6px;";
+      health.onclick = function () {
+        window.location.href = "../../portfolio-health/webapp/index.html";
+      };
+
       var manage = null;
       if (role === "Manager") {
         manage = document.createElement("button");
@@ -141,6 +223,7 @@ sap.ui.define([
       bar.appendChild(back);
       bar.appendChild(title);
       bar.appendChild(spacer);
+      bar.appendChild(health);
       if (manage) { bar.appendChild(manage); }
       bar.appendChild(who);
       bar.appendChild(out);

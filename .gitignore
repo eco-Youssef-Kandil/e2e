@@ -34,3 +34,6 @@ default-env.json
 .DS_Store
 Thumbs.db
 *.swp
+
+# Local Claude Code session state (not part of the app)
+.claude/

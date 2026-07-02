@@ -47,6 +47,66 @@ module.exports = class GovernanceService extends cds.ApplicationService {
       }
     })
 
+    // --- Auto-discard abandoned drafts (server-side safety net) ---------------
+    // Projects are draft-enabled. If a user clicks Edit and then leaves without
+    // Save/Cancel, the draft lingers and the project reopens "frozen" in edit
+    // mode. The client discards drafts on navigation, but a browser crash or an
+    // odd flow can still leave one behind. So whenever the project LIST is read
+    // (i.e. the user is browsing, definitely not mid-edit) we sweep away this
+    // user's own drafts that have been idle longer than a short grace period.
+    // The grace period protects a draft the user JUST created (clicking Edit
+    // also triggers list-adjacent reads); anything older is genuinely abandoned.
+    const DRAFT_GRACE_MS = 60 * 1000 // 1 minute idle → considered abandoned
+    this.before('READ', 'Projects', async (req) => {
+      // Only act on the active list/browse read, never on a draft read.
+      if (req.data && req.data.IsActiveEntity === false) return
+      const isSingle = req.params && req.params.length > 0
+      if (isSingle) return // opening one project — don't sweep here
+      try {
+        const me = req.user.id
+        const cutoff = new Date(Date.now() - DRAFT_GRACE_MS).toISOString()
+        const tx = cds.tx(req)
+        // 1) Find UUIDs of this user's stale drafts from the shared draft admin
+        //    table (association paths aren't allowed inside a draft-table WHERE,
+        //    so we query the admin data directly, then match by UUID).
+        const staleAdmin = await tx.run(
+          SELECT.from('DRAFT.DraftAdministrativeData')
+            .columns('DraftUUID')
+            .where({ CreatedByUser: me, LastChangeDateTime: { '<': cutoff } })
+        )
+        const uuids = (staleAdmin || []).map((a) => a.DraftUUID)
+        if (!uuids.length) return
+        // 2) Map those to Projects draft roots and discard each (cascades to
+        //    the draft's sections).
+        // Delete the abandoned draft roots + their section drafts directly from
+        // the draft tables (keyed by the DraftUUID). Draft rows are ephemeral
+        // working copies, so a direct cascade is safe; we go table-by-table to
+        // avoid the "virtual elements" restriction on draft-entity CQL.
+        const DRAFT_TABLES = [
+          'GovernanceService.Projects.drafts',
+          'GovernanceService.BusinessInput.drafts',
+          'GovernanceService.Readiness.drafts',
+          'GovernanceService.SolutionDetails.drafts',
+          'GovernanceService.GoLiveChecklist.drafts',
+          'GovernanceService.Testing.drafts',
+          'GovernanceService.Risks.drafts'
+        ]
+        let swept = 0
+        for (const tbl of DRAFT_TABLES) {
+          const n = await tx.run(
+            DELETE.from(tbl).where({ DraftAdministrativeData_DraftUUID: { in: uuids } })
+          )
+          if (tbl.includes('Projects.drafts')) { swept = n || 0 }
+        }
+        if (swept) {
+          console.log(`[drafts] swept ${swept} abandoned draft(s) for ${me}`)
+        }
+      } catch (e) {
+        // A cleanup failure must never block the list from loading.
+        console.warn('[drafts] stale-draft sweep skipped:', e.message)
+      }
+    })
+
     // --- Ownership: employees may only EDIT their own projects ---------------
     // Everyone can READ every project, but an employee can enter edit mode only
     // on projects where they are the IT Owner. The Manager can edit anything.
