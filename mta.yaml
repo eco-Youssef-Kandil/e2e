@@ -1,0 +1,65 @@
+_schema-version: "3.2"
+ID: nadec-e2e-governance
+description: NADEC E2E Delivery Governance — CAP service + Fiori portal on BTP (HANA)
+version: 0.1.0
+
+# ---------------------------------------------------------------------------
+# CAP service backed by SAP HANA Cloud. The srv module serves the OData API,
+# the /login routes, AND the static Fiori UI (bundled into gen/srv/app). The
+# db-deployer builds the HANA schema and loads the seed CSVs. Auth is the app's
+# own JWT (AUTH_MODE=local) — switch to XSUAA via mta-xsuaa-reference.yaml.
+#
+# builder: custom / commands: [] → node_modules is NOT bundled; the CF (Linux)
+# buildpack installs deps at staging (correct native binaries for @sap/hana-client).
+#
+# Build & deploy:
+#   npx cds build --production
+#   cp -r app gen/srv/app        # bundle the UI into the service module
+#   mbt build
+#   cf deploy mta_archives/nadec-e2e-governance_0.1.0.mtar
+# ---------------------------------------------------------------------------
+
+parameters:
+  enable-parallel-deployments: true
+
+modules:
+  # HANA schema + seed deployer
+  - name: nadec-e2e-governance-db-deployer
+    type: hdb
+    path: gen/db
+    parameters:
+      buildpack: nodejs_buildpack
+      memory: 256M
+      disk-quota: 1024M
+    requires:
+      - name: nadec-e2e-governance-hdi
+
+  # CAP backend service — OData + /login + static UI
+  - name: nadec-e2e-governance-srv
+    type: nodejs
+    path: gen/srv
+    build-parameters:
+      builder: custom
+      commands: []
+    parameters:
+      buildpack: nodejs_buildpack
+      memory: 512M
+      disk-quota: 1024M
+    provides:
+      - name: srv-api
+        properties:
+          srv-url: ${default-url}
+    requires:
+      - name: nadec-e2e-governance-hdi
+    properties:
+      NODE_ENV: production
+      AUTH_MODE: local
+      JWT_SECRET: "9340d76055bfd51a1472698b1c35411305b193950a235b7f058ec0a08a63a7b4"
+
+resources:
+  # HANA Cloud (HDI container)
+  - name: nadec-e2e-governance-hdi
+    type: com.sap.xs.hdi-container
+    parameters:
+      service: hana
+      service-plan: hdi-shared

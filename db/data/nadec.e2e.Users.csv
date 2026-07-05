@@ -1,0 +1,13 @@
+email;name;employeeId;role;password;active
+adel@nadec.com.sa;Adel Hirab Alotaibi;10001;Manager;$2b$10$D212O.moHJft3lcPFmES/eLFIkEZIkp83bVG6FoqTasCizCk0.3kK;true
+80464@nadec.com.sa;Abdelrahman Hussien;80464;Admin;$2b$10$D212O.moHJft3lcPFmES/eLFIkEZIkp83bVG6FoqTasCizCk0.3kK;true
+rayan@nadec.com.sa;Rayan R. Rozi;10002;Employee;$2b$10$D212O.moHJft3lcPFmES/eLFIkEZIkp83bVG6FoqTasCizCk0.3kK;true
+youssef@nadec.com.sa;Youssef Kandil;10003;Employee;$2b$10$D212O.moHJft3lcPFmES/eLFIkEZIkp83bVG6FoqTasCizCk0.3kK;true
+jehad@nadec.com.sa;Jehad Ahmed Mahmoud;10004;Employee;$2b$10$D212O.moHJft3lcPFmES/eLFIkEZIkp83bVG6FoqTasCizCk0.3kK;true
+abdullah@nadec.com.sa;Abdullah Alsheri;10005;Employee;$2b$10$D212O.moHJft3lcPFmES/eLFIkEZIkp83bVG6FoqTasCizCk0.3kK;true
+khalid@nadec.com.sa;Khalid Abdulrahman Alsaggaf;10006;Employee;$2b$10$D212O.moHJft3lcPFmES/eLFIkEZIkp83bVG6FoqTasCizCk0.3kK;true
+basil@nadec.com.sa;Basil Abdulrahman Altasan;10007;Employee;$2b$10$D212O.moHJft3lcPFmES/eLFIkEZIkp83bVG6FoqTasCizCk0.3kK;true
+ali@nadec.com.sa;Ali Atwa;10008;Employee;$2b$10$D212O.moHJft3lcPFmES/eLFIkEZIkp83bVG6FoqTasCizCk0.3kK;true
+abdulaziz@nadec.com.sa;Abdulaziz Khaleel Alfort;10009;Employee;$2b$10$D212O.moHJft3lcPFmES/eLFIkEZIkp83bVG6FoqTasCizCk0.3kK;true
+eejaz@nadec.com.sa;Eejaz M. Ishaq;10010;Employee;$2b$10$D212O.moHJft3lcPFmES/eLFIkEZIkp83bVG6FoqTasCizCk0.3kK;true
+ghada@nadec.com.sa;Ghada Ali;10011;Employee;$2b$10$D212O.moHJft3lcPFmES/eLFIkEZIkp83bVG6FoqTasCizCk0.3kK;true

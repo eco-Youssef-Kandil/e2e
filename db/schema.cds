@@ -2,6 +2,20 @@ namespace nadec.e2e;
 
 using { managed, cuid } from '@sap/cds/common';
 
+// ---------------------------------------------------------------------------
+// Application roles (the access-control levels — see srv/custom-auth.js)
+//   Employee : read all projects; edit only projects they IT-own; never
+//              (re)assign the IT Owner.
+//   Manager  : full read/write on every project + change any IT Owner.
+//   Admin    : everything a Manager can do, PLUS the Users admin screen
+//              (create / edit users, change their roles & data).
+// ---------------------------------------------------------------------------
+type Role : String(20) enum {
+  Employee;
+  Manager;
+  Admin;
+}
+
 /**
  * NADEC E2E Delivery Governance — data model
  *
@@ -208,4 +222,33 @@ entity Risks : cuid, managed {
       status           : Association to lookup.RiskStatuses;
       escalationNeeded : Association to lookup.YesNoNA;
       notes            : String(1000);
+}
+
+// ---------------------------------------------------------------------------
+// Users — application accounts, roles & login (the "Users" admin screen)
+// ---------------------------------------------------------------------------
+// The source of truth for who can sign in and what they may do. Managed here
+// (not in package.json) so the Admin can add / edit users at runtime.
+//
+// Identity is the corporate **email** — the same value SAP XSUAA / IAS presents
+// in production, and derived from SuccessFactors as `<employeeId>@nadec.com.sa`.
+// Roles are held here in the app DB (NOT in XSUAA scopes) so the Admin can grant
+// them without a redeploy — see srv/role-guard.js.
+//
+//   email      : login identity / key (e.g. "80464@nadec.com.sa").
+//   name       : the person's full name. MUST match the Employees code list so
+//                project ownership (itOwner) resolves — see srv/role-guard.js
+//                and srv/service.js (ownsProject).
+//   employeeId : SuccessFactors userId (the email's local part in prod).
+//   role       : Employee | Manager | Admin (drives all access control).
+//   password   : bcrypt hash — LOCAL DEV ONLY. On BTP this is empty and SAP
+//                IAS / XSUAA authenticates the user instead.
+//   active     : deactivated users cannot sign in (kept for history).
+entity Users : managed {
+  key email      : String(255);
+      name       : String(120) @mandatory;
+      employeeId : String(50);
+      role       : Role default 'Employee' @mandatory;
+      password   : String(255);
+      active     : Boolean default true;
 }

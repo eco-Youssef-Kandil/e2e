@@ -37,3 +37,12 @@ Thumbs.db
 
 # Local Claude Code session state (not part of the app)
 .claude/
+
+# MTA build output
+mta_archives/
+*.mtar
+.*_mta_build_tmp/
+gen/
+
+# cds build artifact
+db/undeploy.json

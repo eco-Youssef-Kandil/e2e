@@ -1,0 +1,12 @@
+{
+  "name": "nadec-e2e-governance-approuter",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Approuter for the NADEC E2E Governance portal (XSUAA login + static UI5 + OData proxy)",
+  "dependencies": {
+    "@sap/approuter": "^20"
+  },
+  "scripts": {
+    "start": "node node_modules/@sap/approuter/approuter.js"
+  }
+}

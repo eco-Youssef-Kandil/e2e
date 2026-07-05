@@ -62,7 +62,9 @@ sap.ui.define([
     //      Object Page) red → green by %, matching the List Report column.
     //      FE's native DataPoint bars render neutral grey otherwise.
     _guardAuditTab: function () {
-      var isManager = sessionStorage.getItem("e2e-user-role") === "Manager";
+      // Admin inherits every Manager capability (incl. the audit trail).
+      var role = sessionStorage.getItem("e2e-user-role");
+      var isManager = role === "Manager" || role === "Admin";
 
       var hide = function () {
         if (isManager) { return; } // managers keep the Change History tab
@@ -112,7 +114,26 @@ sap.ui.define([
         });
       };
 
-      var apply = function () { hide(); paintBars(); };
+      // Hide the ROLE-based Project actions (Create / Delete) from Employees.
+      // These are Manager/Admin-only, but Fiori Elements ignores the server's
+      // @UI.CreateHidden/@UI.DeleteHidden path values on the root List Report, so
+      // we hide them here by their stable control ids. The IT-Owner–only Edit
+      // button is handled server-side (@UI.UpdateHidden), and the Risks section's
+      // own Add/Delete buttons (different ids) are left intact so an owner can
+      // still manage risks on their project. The server still enforces the rules.
+      var hideRoleButtons = function () {
+        if (isManager) { return; } // Manager & Admin keep Create/Delete
+        var sels = [
+          '[id$="LineItem::StandardAction::Create"]',            // List Report: Create
+          '[id$="LineItem::StandardAction::Delete"]',            // List Report: Delete
+          '[id$="ProjectsObjectPage--fe::StandardAction::Delete"]' // Object Page header: Delete
+        ];
+        sels.forEach(function (s) {
+          document.querySelectorAll(s).forEach(function (btn) { btn.style.display = "none"; });
+        });
+      };
+
+      var apply = function () { hide(); paintBars(); hideRoleButtons(); };
 
       // Run now and keep enforcing it as the user navigates between projects
       // (the Object Page re-renders its bars/tab bar on each navigation).
@@ -190,8 +211,9 @@ sap.ui.define([
         window.location.href = "../../portfolio-health/webapp/index.html";
       };
 
+      // Manage Lists — Manager & Admin (Admin ⊇ Manager).
       var manage = null;
-      if (role === "Manager") {
+      if (role === "Manager" || role === "Admin") {
         manage = document.createElement("button");
         manage.id = "e2eManageLists";
         manage.textContent = "Manage Lists";
@@ -202,6 +224,20 @@ sap.ui.define([
           // Same origin / same browser tab session → the auth header in
           // sessionStorage carries over to the admin page.
           window.location.href = "../../admin-lists/webapp/index.html";
+        };
+      }
+
+      // Users & Roles — Admin only.
+      var users = null;
+      if (role === "Admin") {
+        users = document.createElement("button");
+        users.id = "e2eUsers";
+        users.textContent = "Users";
+        users.style.cssText =
+          "padding:5px 12px;font-size:13px;font-weight:600;color:#fff;cursor:pointer;" +
+          "background:rgba(255,255,255,0.14);border:1px solid rgba(255,255,255,0.5);border-radius:6px;";
+        users.onclick = function () {
+          window.location.href = "../../users-admin/webapp/index.html";
         };
       }
 
@@ -225,6 +261,7 @@ sap.ui.define([
       bar.appendChild(spacer);
       bar.appendChild(health);
       if (manage) { bar.appendChild(manage); }
+      if (users) { bar.appendChild(users); }
       bar.appendChild(who);
       bar.appendChild(out);
       document.body.appendChild(bar);

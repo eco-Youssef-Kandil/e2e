@@ -10,17 +10,24 @@ role-based application. **SQLite locally, SAP HANA Cloud on BTP** — same model
 ```
 app/
   project-portal/webapp/  # SAP Fiori Elements app (List Report → Object Page)
-  admin-lists/webapp/     # Manager-only "Manage Lists" admin page (maintain dropdowns)
+  admin-lists/webapp/     # Manager/Admin "Manage Lists" page (maintain dropdowns)
+  users-admin/webapp/     # Admin-only "Users & Roles" page (manage users + roles)
+  portfolio-health/webapp/# Portfolio Health dashboard (all roles)
 db/
-  schema.cds              # the data model (entities + 31 lookup code lists)
-  data/*.csv              # seed data extracted from the Excel (48 projects + lookups)
+  schema.cds              # the data model (entities + 31 lookups + Users + Role enum)
+  data/*.csv              # seed data (48 projects + lookups + Users)
   e2e.db                  # local SQLite DB (created by deploy — NOT committed)
   change-tracking.cds     # audit-log annotations (who changed what, when)
 srv/
   service.cds             # OData service (GovernanceService @ /governance)
+  auth-service.cds/.js    # AuthService @ /auth: login + Admin Users CRUD
+  role-guard.js           # hybrid auth middleware (local JWT + XSUAA); DB-driven roles
+  server.js               # public /login + /login-users routes for the sign-in page
+  integration/sf-hr-client.js  # SuccessFactors employee lookup (destination / .env)
   annotations.cds         # Fiori UI annotations (the portal's screens & dropdowns)
   service.js              # computes Go-Live % / Readiness % on save + audit guard
   views.cds               # computed views: EmployeeAllocation (75/25), ActionRequired
+mta.yaml, xs-security.json, approuter/   # BTP deployment (XSUAA + SF + HANA)
 docs/
   FEATURES.md             # all services & features — start here
   DATA-MODEL.md           # full sheet→table mapping + lifecycle spec
@@ -44,20 +51,45 @@ The OData service is at `/governance`; `/governance/Projects` is the raw project
 > The UI5 runtime loads from the SAP CDN (`ui5.sap.com`), so the **browser needs
 > internet**. The OData backend, data, and annotations are fully local/offline.
 
-## Logging in (mocked users)
+## Auth & roles
 
-Auth is mocked locally — log in with any of these (username = password):
+Authentication is **hybrid** (same model as the NADEC Visitor-Gate app), driven by
+`srv/role-guard.js` and the `AUTH_MODE` env var:
 
-| User | Role | Can |
-|---|---|---|
-| `adel` | **Manager** | Create projects, assign IT Owner, edit everything, **view the audit log**, **manage the dropdown lists** |
-| `rayan`, `youssef`, `jehad`, `abdullah`, `khalid`, `basil`, `ali`, `abdulaziz`, `eejaz`, `abdelrahman`, `ghada` | Employee | Edit their assigned projects' sections (no create, no audit log, no list management) |
+- **Local dev (`AUTH_MODE=local`, default):** the sign-in page checks a **bcrypt**
+  password against the `Users` table and exchanges it for a signed **app JWT (HS256)**.
+- **Production (`AUTH_MODE=xsuaa`):** the SAP **XSUAA / IAS** Bearer token is verified with
+  `@sap/xssec`. The user's **identity comes from SuccessFactors** (`<employeeId>@nadec.com.sa`);
+  a first-time user is **auto-provisioned from SuccessFactors** as an Employee.
 
-Each user maps to a real name in the **Employees** lookup (the IT Owner column).
-Only **`adel`** (Adel Alotaibi) is the Manager; everyone else is an Employee.
+**Roles live in the app database (`Users.role`), not in XSUAA scopes** — so an Admin can grant
+or revoke them from the Users screen with no redeploy (that's why `xs-security.json` ships with
+no role templates).
 
-> These are **mock dev logins only** (plaintext passwords in `package.json`). On BTP they
-> are replaced by SAP IAS / XSUAA — see the deploy section below.
+| Role | Can |
+|---|---|
+| **Employee** | Read **all** projects; edit only the projects they IT-own; **cannot** create projects or (re)assign the IT Owner of any project |
+| **Manager** | Full read/write on **every** project + change the **IT Owner** of any project; view the audit log; manage the dropdown lists |
+| **Admin** | Everything a Manager can do **plus** the **Users** screen — add/edit users, change their **roles** and data |
+
+Role hierarchy: **Admin ⊇ Manager ⊇ Employee** — an Admin automatically passes every
+Manager-guarded rule. Rules are enforced **server-side** (`@restrict` in `srv/*.cds` +
+handlers in `srv/service.js` and `srv/auth-service.js`), not just hidden in the UI.
+
+### Local demo sign-in
+
+Log in at <http://localhost:4004/project-portal/webapp/login.html> — pick an account and
+sign in. **Demo password for every seeded account: `nadec123`** (bcrypt-hashed in the DB).
+
+| Account | Role |
+|---|---|
+| `80464@nadec.com.sa` — Abdelrahman Hussien | **Admin** |
+| `adel@nadec.com.sa` — Adel Hirab Alotaibi | **Manager** |
+| `rayan@…`, `youssef@…`, `jehad@…`, `abdullah@…`, `khalid@…`, `basil@…`, `ali@…`, `abdulaziz@…`, `eejaz@…`, `ghada@…` | Employee |
+
+Each account's **full name** matches the **Employees** lookup (the IT Owner column) so project
+ownership resolves. Users are managed at runtime from the **Users** screen (Admin only) — new
+users appear in the sign-in roster automatically.
 
 ## Using the portal
 
@@ -122,16 +154,33 @@ The app is **database-agnostic** — SQLite is only for local development conven
 
 ## Deploy to BTP (production)
 
-```bash
-cds add hana              # adds HANA config + mta build descriptor
-# create / bind a SAP HANA Cloud instance on your BTP subaccount, then:
-cds deploy                # deploys schema + seed data to HANA
+The MTA descriptor, XSUAA security file, and approuter are already in the repo (modelled on
+the NADEC Visitor-Gate app):
+
+```
+mta.yaml            # db-deployer + CAP srv (AUTH_MODE=xsuaa) + approuter + UI
+xs-security.json    # XSUAA — no role scopes (roles live in the Users table)
+approuter/          # XSUAA login + serves the UI5 apps + proxies /governance & /auth
+.env.sample         # AUTH_MODE / JWT_SECRET / SF_* documentation
 ```
 
-For a full managed deployment (approuter + XSUAA auth + Fiori launchpad) use the standard
-CAP MTA flow: `cds add mta`, `mbt build`, `cf deploy`. The mocked logins in `package.json`
-are replaced by **SAP IAS / XSUAA**; `db/schema.cds`, `srv/`, and the apps under `app/` do
-not change.
+Build & deploy:
+
+```bash
+cds build --production
+mbt build
+cf deploy mta_archives/nadec-e2e-governance_0.1.0.mtar
+```
+
+On BTP the `srv` module runs with **`AUTH_MODE=xsuaa`**, so `srv/role-guard.js` verifies the
+**XSUAA / IAS** token instead of the local app JWT. **Identity comes from SuccessFactors**
+(`<employeeId>@nadec.com.sa`) via the bound **`SF_PRD_Raw`** destination; a first-time user is
+auto-provisioned as an Employee, then an **Admin** promotes them from the Users screen. Roles are
+**not** XSUAA scopes — they stay in the `Users` table, so no redeploy is needed to change them.
+
+> The backend XSUAA path (`srv/role-guard.js`, `srv/auth-service.js`) is implemented; the MTA /
+> approuter descriptors are provided as the deployment starting point and should be built &
+> smoke-tested on your BTP space (bind the `SF_PRD_Raw` destination + a real `JWT_SECRET`).
 
 ## Uploading to Azure DevOps (first push)
 

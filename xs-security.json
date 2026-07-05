@@ -1,0 +1,14 @@
+{
+  "xsappname": "nadec-e2e-governance",
+  "tenant-mode": "dedicated",
+  "scopes": [],
+  "attributes": [],
+  "role-templates": [],
+  "role-collections": [],
+  "oauth2-configuration": {
+    "token-validity": 86400,
+    "redirect-uris": [
+      "https://*.cfapps.*.hana.ondemand.com/**"
+    ]
+  }
+}

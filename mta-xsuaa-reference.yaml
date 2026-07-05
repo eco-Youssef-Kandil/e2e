@@ -1,0 +1,108 @@
+_schema-version: "3.2"
+ID: nadec-e2e-governance
+description: NADEC E2E Delivery Governance — CAP service + Fiori portal on BTP
+version: 0.1.0
+
+parameters:
+  enable-parallel-deployments: true
+
+# ---------------------------------------------------------------------------
+# Build the CAP model into gen/db + gen/srv before assembling the MTA.
+#   cds build --production   →   gen/
+#   mbt build                →   mta_archives/*.mtar
+#   cf deploy mta_archives/nadec-e2e-governance_0.1.0.mtar
+# ---------------------------------------------------------------------------
+build-parameters:
+  before-all:
+    - builder: custom
+      commands:
+        - npx cds build --production
+
+modules:
+  # HANA schema + seed deployer
+  - name: nadec-e2e-governance-db-deployer
+    type: hdb
+    path: gen/db
+    parameters:
+      buildpack: nodejs_buildpack
+    requires:
+      - name: nadec-e2e-governance-hdi
+
+  # CAP backend service (auth = XSUAA; roles resolved from the DB Users table)
+  - name: nadec-e2e-governance-srv
+    type: nodejs
+    path: gen/srv
+    parameters:
+      buildpack: nodejs_buildpack
+      memory: 512M
+    provides:
+      - name: srv-api
+        properties:
+          srv-url: ${default-url}
+    requires:
+      - name: nadec-e2e-governance-hdi
+      - name: nadec-e2e-governance-uaa
+      - name: nadec-e2e-governance-destination
+    properties:
+      NODE_ENV: production
+      # Switch the hybrid auth strategy (srv/role-guard.js) to XSUAA validation.
+      AUTH_MODE: xsuaa
+      # HS256 secret for app-issued tokens — set a real secret in the space.
+      JWT_SECRET: "e2e-governance-secret-key-change-in-production"
+      # SuccessFactors — resolved via the BTP Destination below (same as Visitor-Gate).
+      SF_DESTINATION_NAME: "SF_PRD_Raw"
+
+  # Standalone approuter serving the Fiori portal behind XSUAA login
+  - name: nadec-e2e-governance-app
+    type: approuter.nodejs
+    path: approuter
+    parameters:
+      memory: 256M
+    requires:
+      - name: srv-api
+        group: destinations
+        properties:
+          name: srv-api
+          url: ~{srv-url}
+          forwardAuthToken: true
+      - name: nadec-e2e-governance-uaa
+    build-parameters:
+      # Bundle the static UI5 apps into the approuter's resources folder.
+      requires:
+        - name: nadec-e2e-governance-ui
+          artifacts:
+            - "./*"
+          target-path: resources
+
+  # The static UI5 / Fiori Elements apps (served by the approuter)
+  - name: nadec-e2e-governance-ui
+    type: html5
+    path: app
+    build-parameters:
+      builder: custom
+      commands: []
+      build-result: .
+      supported-platforms: []
+
+resources:
+  # XSUAA — authentication (no role scopes; roles live in the app DB Users table)
+  - name: nadec-e2e-governance-uaa
+    type: org.cloudfoundry.managed-service
+    parameters:
+      service: xsuaa
+      service-plan: application
+      path: ./xs-security.json
+
+  # HANA Cloud (HDI container)
+  - name: nadec-e2e-governance-hdi
+    type: com.sap.xs.hdi-container
+    parameters:
+      service: hana
+      service-plan: hdi-shared
+
+  # BTP Destination service (holds the SuccessFactors "SF_PRD_Raw" destination)
+  - name: nadec-e2e-governance-destination
+    type: org.cloudfoundry.managed-service
+    parameters:
+      service: destination
+      service-plan: lite

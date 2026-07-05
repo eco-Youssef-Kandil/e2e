@@ -97,6 +97,13 @@ annotate GovernanceService.Projects with @(
     Description    : { $Type: 'UI.DataField', Value: ID }
   },
 
+  // Per-row Edit button: hidden unless the signed-in user is the project's IT
+  // Owner or a Manager/Admin (editHidden computed per user/row in service.js).
+  // FE honours @UI.UpdateHidden per instance on the Object Page. The role-based
+  // Create/Delete buttons are hidden for Employees in Component.js instead —
+  // FE ignores @UI.CreateHidden/@UI.DeleteHidden path values on the root list.
+  UI.UpdateHidden : editHidden,
+
   // Filter bar on the List Report
   UI.SelectionFields : [
     itOwner_code,
@@ -180,7 +187,10 @@ annotate GovernanceService.Projects with @(
 annotate GovernanceService.Projects with {
   ID           @Common.Label: 'Project ID';
   name         @Common.Label: 'Project Name' @title: 'Project Name' @mandatory;
-  itOwner      @Common.Label: 'IT Owner';
+  // IT Owner is read-only (FieldControl 1) for Employees and editable (3) for
+  // Manager/Admin — itOwnerFC is computed per user in srv/service.js, so an
+  // Employee can never (re)assign the IT Owner even while editing their project.
+  itOwner      @Common.Label: 'IT Owner' @Common.FieldControl: itOwnerFC;
   workCategory @Common.Label: 'Work Category';
   domain       @Common.Label: 'Business Domain';
   requester    @Common.Label: 'Business Requester';

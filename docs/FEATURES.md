@@ -13,22 +13,47 @@ services, the automatic logic, and the audit trail.
 
 ## 1. Sign-in & roles
 
-Login is a **custom account picker** (`login.html`) — pick a person, click **Sign in**, no
-browser popup. Locally this uses CAP **mocked auth** (username = password); on BTP it is
-replaced by SAP IAS / XSUAA. Every account maps to a real name from the **Employees** list.
+Sign-in is **hybrid** (same as the NADEC Visitor-Gate app), in `srv/role-guard.js`:
+- **Local dev** — the sign-in page (`login.html`) checks a **bcrypt** password against the
+  `Users` table and gets back a signed **app JWT (HS256)**. Demo password: `nadec123`.
+- **Production (`AUTH_MODE=xsuaa`)** — SAP **XSUAA / IAS** token verified with `@sap/xssec`;
+  the **username comes from SuccessFactors** (`<employeeId>@nadec.com.sa`), auto-provisioned
+  on first sign-in.
 
-| Role | Who | Can |
-|---|---|---|
-| **Manager** | Adel Hirab Alotaibi (`adel`) | Everything: create/delete projects, assign IT Owner, edit any section, **view the audit log** |
-| **Employee** | Rayan, Youssef, Jehad, Abdullah, Khalid, Basil, Ali, Abdulaziz, Eejaz, Abdelrahman, Ghada | Edit existing projects' sections; **cannot** create/delete projects or view the audit log |
+**Roles are stored in the DB (`Users.role`)** — the **Admin** grants them from the Users screen
+(§8), no redeploy, no XSUAA scopes.
 
-Role rules are enforced on the **server** (not just hidden in the UI):
-- `CREATE` / `DELETE` on Projects → **Manager only** (`@restrict` in `srv/service.cds`).
-- `READ` / `UPDATE` → any signed-in user.
-- Audit log (`changes`) → **Manager only** (handler in `srv/service.js`).
+| Role | Can |
+|---|---|
+| **Employee** | Read **all** projects; edit only the projects they **IT-own**; **cannot** create projects or (re)assign the IT Owner of any project |
+| **Manager** | Read/write/edit **any** project + change the **IT Owner** of any project; view the audit log; manage the dropdown lists |
+| **Admin** | Everything a Manager can, **plus** the **Users** screen — add/edit users, change **roles** & data |
+
+Hierarchy **Admin ⊇ Manager ⊇ Employee** — an Admin passes every Manager rule automatically.
+All rules are enforced on the **server** (the UI hiding below is convenience, not the control):
+- `CREATE` / `DELETE` on Projects → **Manager/Admin only** (`@restrict` in `srv/service.cds`).
+- `EDIT` a project → the assigned **IT Owner** or a Manager/Admin (`srv/service.js` `before EDIT`).
+- Change a project's **IT Owner** → Manager/Admin only (`srv/service.js` `before SAVE`).
+- Audit log + Manage Lists → Manager/Admin. **Users** entity → **Admin only** (`srv/auth-service.cds`).
+
+**The buttons & fields match the permissions** — a user only sees actions they can perform
+(verified in a real browser across all three roles):
+- **Edit** — hidden on projects an Employee doesn't own, via `@UI.UpdateHidden : editHidden`
+  (a per-row flag computed for active **and** draft reads in `srv/service.js`; FE honours it
+  per instance on the Object Page).
+- **IT Owner field** — read-only for Employees via `@Common.FieldControl : itOwnerFC`
+  (`itOwnerFC` is an **Edm.Byte**: 1 = ReadOnly, 3 = editable; also computed on draft reads so
+  the field is locked while editing). An Employee can view/edit their project but never reassign it.
+- **Create / Delete** — Manager/Admin only. Fiori Elements ignores `@UI.CreateHidden`/
+  `@UI.DeleteHidden` path values on the root List Report, so these buttons are hidden for
+  Employees client-side in `app/project-portal/webapp/Component.js` (same pattern as the audit tab).
+
+CAP does **not** reflect `@restrict` role grants into the OData capability annotations, which is
+why the buttons are hidden explicitly. The server handlers + `@restrict` remain the real control.
 
 A green **NADEC top bar** shows the app title, the signed-in user + role, a **Sign out**
-button, and — on a project page — a **← Projects** back link.
+button, role-gated **Manage Lists** / **Users** buttons, and — on a project page — a
+**← Projects** back link.
 
 ---
 
@@ -132,11 +157,11 @@ All entities are OData V4. Open any in a browser (you'll be asked to sign in).
 
 ---
 
-## 7. Manage Lists (admin page) — Manager only
+## 7. Manage Lists (admin page) — Manager & Admin
 
-The dropdown choices used across the portal are **maintained by the Manager in-app**, without a
-developer. A **Manage Lists** button appears in the top bar **only for the Manager** and opens a
-dedicated admin page (`/admin-lists/webapp/index.html`).
+The dropdown choices used across the portal are **maintained in-app**, without a developer. A
+**Manage Lists** button appears in the top bar for **Manager or Admin** and opens a dedicated
+admin page (`/admin-lists/webapp/index.html`).
 
 - **Pick a list** (Work Category, Priority, Risk Level, Test Phase, Bug Status, …) from the picker.
 - **Add / Edit / Delete** entries (Code, Name, Sort Order). New values appear immediately in the
@@ -151,7 +176,27 @@ dedicated admin page (`/admin-lists/webapp/index.html`).
 
 ---
 
-## 8. Where things live (for developers)
+## 8. Users & Roles (admin page) — Admin only
+
+A **Users** button appears in the top bar **only for an Admin** and opens
+`/users-admin/webapp/index.html` — the runtime user-management screen.
+
+- **Add a user** (email/login, full name, SuccessFactors employee ID, role, initial password).
+  New users appear in the sign-in roster immediately.
+- **Inline-edit** name, employee ID, **role** (Employee / Manager / Admin), and **Active**.
+- **Reset password** (bcrypt-hashed on save) and **Delete** per row.
+- **Admin-only & enforced server-side:** the page redirects non-Admins; the `Users` entity is
+  `@restrict … to:'Admin'` (`srv/auth-service.cds`) — a Manager or Employee who reaches the API gets `403`.
+- **Password safety:** hashes are **never** returned on read (masked in `srv/auth-service.js`);
+  passwords are only ever written, hashed with bcrypt.
+- **Last-admin guard:** the server refuses to delete, deactivate, or demote the **last active
+  Admin**, so the app can never be locked out of its own Users screen.
+- **Roles take effect on the next request** (a short server-side role cache is invalidated on
+  every user change).
+
+---
+
+## 9. Where things live (for developers)
 
 | Concern | File |
 |---|---|
@@ -163,9 +208,15 @@ dedicated admin page (`/admin-lists/webapp/index.html`).
 | Computed logic + audit guard | `srv/service.js` |
 | Dashboards (computed views) | `srv/views.cds` |
 | Frontend app (List Report + Object Page) | `app/project-portal/webapp/` |
-| **Manage Lists admin page (Manager-only)** | `app/admin-lists/webapp/index.html` |
+| **Manage Lists admin page (Manager/Admin)** | `app/admin-lists/webapp/index.html` |
+| **Users & Roles admin page (Admin-only)** | `app/users-admin/webapp/index.html` |
 | Login picker / top bar / auth injection | `app/project-portal/webapp/{login.html, Component.js, index.html}` |
-| Mocked users (local) | `package.json` → `cds.requires.auth` |
+| Hybrid auth (local JWT + XSUAA), DB-driven roles | `srv/role-guard.js` |
+| Sign-in + Admin Users CRUD (`/auth`) | `srv/auth-service.{cds,js}` |
+| Public `/login` + `/login-users` routes | `srv/server.js` |
+| SuccessFactors employee lookup | `srv/integration/sf-hr-client.js` |
+| Users table + Role enum | `db/schema.cds`, seed `db/data/nadec.e2e.Users.csv` |
+| BTP deploy (XSUAA + SF + HANA) | `mta.yaml`, `xs-security.json`, `approuter/` |
 
 **Run locally**
 ```bash

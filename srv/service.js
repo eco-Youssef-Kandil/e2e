@@ -43,7 +43,7 @@ module.exports = class GovernanceService extends cds.ApplicationService {
     // to the Manager role, so employees cannot see the audit trail.
     this.before('READ', 'ChangeView', (req) => {
       if (!req.user.is('Manager')) {
-        req.reject(403, 'Only the manager can view the change history.')
+        req.reject(403, 'Only a Manager or Admin can view the change history.')
       }
     })
 
@@ -122,11 +122,70 @@ module.exports = class GovernanceService extends cds.ApplicationService {
       return !!itOwnerCode && !!me && itOwnerCode === me
     }
 
+    // --- Per-row UI permission flags -----------------------------------------
+    // Computed on every Projects read so Fiori Elements shows the Edit button and
+    // an editable IT Owner ONLY where the signed-in user has permission (bound via
+    // @UI.UpdateHidden : editHidden and @Common.FieldControl : itOwnerFC).
+    //   editHidden = true → hide Edit (not the IT Owner, and not a Manager/Admin)
+    //   itOwnerFC  = 1 ReadOnly (Employee) / 3 editable (Manager/Admin)
+    //
+    // IMPORTANT: ownership depends on itOwner_code, but Fiori Elements does not
+    // always $select it in the request that evaluates @UI.UpdateHidden (e.g. the
+    // Object Page). So when it's missing we look it up by the row's key ID — in
+    // ONE batched query for the whole result set — otherwise an owner-Employee
+    // would wrongly get editHidden=true and lose the Edit button on their own
+    // project. Managers/Admins own everything, so no lookup is needed for them.
+    const computeProjectFlags = async (data, req) => {
+      const isMgr = req.user.is('Manager')   // true for Manager AND Admin
+      const rows = Array.isArray(data) ? data : (data ? [data] : [])
+      let ownerById = {}
+      if (!isMgr) {
+        const missing = [...new Set(
+          rows.filter(p => p && typeof p === 'object' && p.itOwner_code === undefined && p.ID).map(p => p.ID)
+        )]
+        if (missing.length) {
+          const found = await cds.tx(req).run(
+            SELECT.from('nadec.e2e.Projects').columns('ID', 'itOwner_code').where({ ID: { in: missing } })
+          )
+          for (const r of (found || [])) ownerById[r.ID] = r.itOwner_code
+        }
+      }
+      for (const p of rows) {
+        if (!p || typeof p !== 'object') continue
+        const owner = p.itOwner_code !== undefined ? p.itOwner_code : ownerById[p.ID]
+        p.editHidden = !ownsProject(req, owner)
+        p.itOwnerFC = isMgr ? 3 : 1
+      }
+    }
+    // Compute for BOTH the active read (List Report / Object Page display) AND the
+    // draft read (edit mode) — otherwise the IT Owner FieldControl (itOwnerFC) is
+    // null while editing and Fiori Elements renders the field editable.
+    this.after('READ', 'Projects', computeProjectFlags)
+    this.after('READ', 'Projects.drafts', computeProjectFlags)
+
+    // --- Protect the project's lifecycle sections from direct deletion --------
+    // The satellites (Business Input, Readiness, Solution Details, Go-Live,
+    // Testing, Risks) are compositions of a project. In normal use they are only
+    // ever changed through the project's DRAFT (deep save) — never deleted
+    // directly against the active table. But as bare projections they would
+    // otherwise let any signed-in user DELETE another project's section rows via
+    // direct OData. So we reject a DIRECT delete of an ACTIVE section row unless
+    // the caller is a Manager/Admin (which also covers the project-delete
+    // cascade). Draft-node deletes (IsActiveEntity = false) are part of an owned
+    // draft edit and pass through untouched.
+    const SECTIONS = ['BusinessInput', 'Readiness', 'SolutionDetails', 'GoLiveChecklist', 'Testing', 'Risks']
+    this.before('DELETE', SECTIONS, (req) => {
+      const key = req.params && req.params[req.params.length - 1]
+      if (key && key.IsActiveEntity === false) return   // draft node — allowed
+      if (req.user.is('Manager')) return                // Manager/Admin + cascade
+      req.reject(403, 'Project sections can only be changed through the project — you cannot delete them directly.')
+    })
+
     this.before('NEW', 'Projects.drafts', (req) => {
       // Belt-and-braces: creating a brand-new project draft is Manager-only
       // (the @restrict already blocks CREATE, this keeps the message friendly).
       if (!req.user.is('Manager')) {
-        req.reject(403, 'Only the manager can create new projects.')
+        req.reject(403, 'Only a Manager or Admin can create new projects.')
       }
     })
 
@@ -140,7 +199,7 @@ module.exports = class GovernanceService extends cds.ApplicationService {
       )
       if (proj && !ownsProject(req, proj.itOwner_code)) {
         req.reject(403,
-          'Only the assigned IT Owner (or the Manager) can edit this project.')
+          'Only the assigned IT Owner (or a Manager/Admin) can edit this project.')
       }
     })
 
@@ -158,7 +217,7 @@ module.exports = class GovernanceService extends cds.ApplicationService {
           ? p.itOwner_code
           : (p.itOwner && p.itOwner.code)
         if (incoming !== undefined && before && incoming !== before.itOwner_code) {
-          req.reject(403, 'Only the manager can change the IT Owner of a project.')
+          req.reject(403, 'Only a Manager or Admin can change the IT Owner of a project.')
         }
       }
 

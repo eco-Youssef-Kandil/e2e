@@ -15,6 +15,13 @@ service GovernanceService @(path: '/governance') {
   // ---- The master + its satellites (editable) ----
   @odata.draft.enabled
   @cds.redirection.target
+  // Role & row-level rules:
+  //   - CREATE / DELETE   → Manager/Admin only (@restrict below; CAP auto-hides
+  //                         these buttons for Employees via $metadata capabilities).
+  //   - UPDATE (draftEdit)→ granted to any authenticated user here, but the
+  //                         before(EDIT) handler restricts it to the assigned IT
+  //                         Owner (or a Manager/Admin) — see srv/service.js.
+  //   - change IT Owner   → Manager/Admin only (before SAVE + read-only in the UI).
   @(restrict: [
     { grant: ['READ', 'UPDATE'],   to: 'authenticated-user' },
     { grant: ['CREATE', 'DELETE'], to: 'Manager' }
@@ -22,17 +29,48 @@ service GovernanceService @(path: '/governance') {
   // Live data-completeness (per project + per section) is exposed as the
   // `completeness` association so the List Report column and the Object Page
   // "Completeness" facet can bind to completeness/... without storing anything.
+  //
+  // Per-user / per-row virtual flags (computed in srv/service.js after READ) that
+  // drive Fiori Elements visibility so a user only sees actions they may perform:
+  //   editHidden → hide the Edit button on projects the user can't edit    [per row]
+  //                (bound via @UI.UpdateHidden — works per-instance in FE).
+  //   itOwnerFC  → IT Owner field control: 1 = ReadOnly (Employee), 3 = editable
+  //                (Manager/Admin). Bound via @Common.FieldControl — MUST be an
+  //                Edm.Byte for FE to honour a dynamic FieldControl path.
+  // The Create / Delete buttons are ROLE-based; FE ignores @UI.CreateHidden/
+  // @UI.DeleteHidden path values on the root List Report, so they are hidden for
+  // Employees client-side in app/.../Component.js. The server handlers + @restrict
+  // remain the real security control.
   entity Projects        as select from my.Projects
     mixin {
       completeness : Association to ProjectCompleteness on completeness.ID = ID;
     }
-    into { *, completeness };
+    into {
+      *,
+      completeness,
+      virtual null as editHidden : Boolean @Core.Computed,
+      virtual null as itOwnerFC  : Integer @Core.Computed @odata.Type: 'Edm.Byte'
+    };
 
+  // The project's lifecycle sections are compositions of Projects — they are
+  // read/written through the project's DRAFT, not directly. Restrict them to
+  // signed-in users so they are not world-readable / -writable via direct OData
+  // (they carried no restriction before). Granting '*' to authenticated-user
+  // keeps the draft deep-save working for the owner; a direct DELETE of an
+  // ACTIVE section row is further limited to Manager/Admin in srv/service.js.
+  // (Per-entity @restrict — unlike a service-level @requires — does not block the
+  // anonymous $metadata request the Fiori app needs to bootstrap.)
+  @(restrict: [{ grant: '*', to: 'authenticated-user' }])
   entity BusinessInput   as projection on my.BusinessInput;
+  @(restrict: [{ grant: '*', to: 'authenticated-user' }])
   entity Readiness       as projection on my.Readiness;
+  @(restrict: [{ grant: '*', to: 'authenticated-user' }])
   entity SolutionDetails as projection on my.SolutionDetails;
+  @(restrict: [{ grant: '*', to: 'authenticated-user' }])
   entity GoLiveChecklist as projection on my.GoLiveChecklist;
+  @(restrict: [{ grant: '*', to: 'authenticated-user' }])
   entity Testing         as projection on my.Testing;
+  @(restrict: [{ grant: '*', to: 'authenticated-user' }])
   entity Risks           as projection on my.Risks;
 
   // ---- Dashboards (computed, read-only) ----

@@ -38,7 +38,8 @@
       var token = sessionStorage.getItem("e2e-auth");
       var role  = sessionStorage.getItem("e2e-user-role");
       if (!token) { window.location.replace("../../project-portal/webapp/login.html"); return; }
-      if (role !== "Manager") { window.location.replace("../../project-portal/webapp/index.html"); return; }
+      // Manager & Admin may manage the lists (Admin inherits Manager rights).
+      if (role !== "Manager" && role !== "Admin") { window.location.replace("../../project-portal/webapp/index.html"); return; }
     })();
   </script>
 
