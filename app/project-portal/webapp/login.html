@@ -94,12 +94,13 @@
   </div>
 
   <script>
-    var DEMO_PWD = "nadec123"; // seeded demo password for every account
+    var DEMO_PWD = "nadec123"; // seeded demo password for every account (LOCAL only)
     var sel = document.getElementById("account");
     var hint = document.getElementById("roleHint");
     var pwd = document.getElementById("pwd");
     var errBox = document.getElementById("errBox");
     var btn = document.getElementById("loginBtn");
+    var sub = document.querySelector(".sub");
     var ACCOUNTS = [];
 
     function roleBlurb(role) {
@@ -113,31 +114,98 @@
     }
     function setError(m) { errBox.textContent = m || ""; }
 
-    // Load the sign-in roster (falls back to a manual message if unavailable).
-    fetch("/login-users")
-      .then(function (r) { return r.ok ? r.json() : []; })
-      .then(function (list) {
-        ACCOUNTS = list || [];
-        if (!ACCOUNTS.length) {
-          setError("No users found. Deploy the database (npm run deploy:local).");
-          btn.disabled = true;
-          return;
-        }
-        ACCOUNTS.forEach(function (a, i) {
-          var opt = document.createElement("option");
-          opt.value = String(i);
-          opt.textContent = a.name + " — " + a.role;
-          sel.appendChild(opt);
-        });
-        pwd.value = DEMO_PWD; // demo convenience: prefilled
-        updateHint();
-      })
-      .catch(function () {
-        setError("Could not reach the server. Is the service running?");
-        btn.disabled = true;
-      });
+    // Persist the session the rest of the app reads (Component.js / top bar).
+    // In XSUAA mode the token may be absent — the approuter's SSO token authorizes
+    // OData; the "xsuaa" marker just satisfies the client-side session guard.
+    function storeSession(u) {
+      sessionStorage.setItem("e2e-auth", u.token ? ("Bearer " + u.token) : "xsuaa");
+      sessionStorage.setItem("e2e-user-name", u.name || u.email || "");
+      sessionStorage.setItem("e2e-user-role", u.role || "Employee");
+      sessionStorage.setItem("e2e-user-email", u.email || "");
+    }
 
-    sel.addEventListener("change", function () { updateHint(); setError(""); });
+    // ---- XSUAA (production): identity comes from SAP SSO, never a password ----
+    // Normalise the various OData shapes {..}/{value:..}/{user:..} into a user.
+    function pickUser(j) {
+      if (!j) { return null; }
+      var v = (j.value && typeof j.value === "object") ? j.value : j;
+      if (v.user && typeof v.user === "object") {           // xsuaaLogin action result
+        return { email: v.user.email, name: v.user.name, role: v.user.role, token: v.token };
+      }
+      if (v.email || v.role) {                              // getCurrentUser result
+        return { email: v.email, name: v.name, role: v.role, token: v.token };
+      }
+      return null;
+    }
+
+    // Exchange the SSO identity for an app session + provision on first sign-in.
+    function xsuaaProvisionLogin() {
+      return fetch("/auth/", { headers: { "x-csrf-token": "fetch", "Accept": "application/json" } })
+        .then(function (r) { return r.headers.get("x-csrf-token") || r.headers.get("X-CSRF-Token"); })
+        .then(function (csrf) {
+          return fetch("/auth/xsuaaLogin", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "Accept": "application/json", "x-csrf-token": csrf || "" },
+            body: "{}"
+          });
+        })
+        .then(function (r) { if (!r.ok) { throw new Error("xsuaaLogin " + r.status); } return r.json(); })
+        .then(function (j) { var u = pickUser(j); if (!u || !u.email) { throw new Error("no user"); } return u; });
+    }
+
+    // Fallback if the provisioning action is unavailable (e.g. CSRF): read the
+    // already-authenticated identity — a plain GET, so it always succeeds once
+    // the approuter has signed the user in.
+    function xsuaaCurrentUser() {
+      return fetch("/auth/getCurrentUser()", { headers: { "Accept": "application/json" } })
+        .then(function (r) { if (!r.ok) { throw new Error("getCurrentUser " + r.status); } return r.json(); })
+        .then(function (j) { var u = pickUser(j); if (!u || !u.email) { throw new Error("no user"); } return u; });
+    }
+
+    function initXsuaa() {
+      if (sub) { sub.textContent = "Signing you in via SAP single sign-on…"; }
+      ["account", "pwd", "roleHint", "loginBtn"].forEach(function (id) {
+        var el = document.getElementById(id); if (el) { el.style.display = "none"; }
+      });
+      document.querySelectorAll("label, .foot").forEach(function (el) { el.style.display = "none"; });
+      xsuaaProvisionLogin()
+        .catch(function () { return xsuaaCurrentUser(); })
+        .then(function (u) { storeSession(u); window.location.replace("index.html"); })
+        .catch(function () {
+          if (sub) { sub.textContent = "Sign-in failed."; }
+          setError("Could not complete SAP sign-in. Please reload the page.");
+        });
+    }
+
+    // ---- LOCAL (dev): bcrypt password picker over the sign-in roster ----
+    function initLocal() {
+      fetch("/login-users")
+        .then(function (r) { return r.ok ? r.json() : []; })
+        .then(function (list) {
+          ACCOUNTS = list || [];
+          if (!ACCOUNTS.length) {
+            setError("No users found. Deploy the database (npm run deploy:local).");
+            btn.disabled = true;
+            return;
+          }
+          ACCOUNTS.forEach(function (a, i) {
+            var opt = document.createElement("option");
+            opt.value = String(i);
+            opt.textContent = a.name + " — " + a.role;
+            sel.appendChild(opt);
+          });
+          pwd.value = DEMO_PWD; // demo convenience: prefilled
+          updateHint();
+        })
+        .catch(function () {
+          setError("Could not reach the server. Is the service running?");
+          btn.disabled = true;
+        });
+
+      sel.addEventListener("change", function () { updateHint(); setError(""); });
+      btn.addEventListener("click", doLogin);
+      pwd.addEventListener("keydown", function (e) { if (e.key === "Enter") doLogin(); });
+    }
 
     function doLogin() {
       var a = ACCOUNTS[Number(sel.value)];
@@ -155,10 +223,7 @@
           throw new Error((res.body && res.body.error) || "Invalid email or password.");
         }
         var u = res.body.user || {};
-        sessionStorage.setItem("e2e-auth", "Bearer " + res.body.token);
-        sessionStorage.setItem("e2e-user-name", u.name || a.name);
-        sessionStorage.setItem("e2e-user-role", u.role || a.role);
-        sessionStorage.setItem("e2e-user-email", u.email || a.email);
+        storeSession({ token: res.body.token, name: u.name || a.name, role: u.role || a.role, email: u.email || a.email });
         window.location.href = "index.html";
       })
       .catch(function (e) {
@@ -166,8 +231,16 @@
         btn.disabled = false; btn.textContent = "Sign in";
       });
     }
-    btn.addEventListener("click", doLogin);
-    pwd.addEventListener("keydown", function (e) { if (e.key === "Enter") doLogin(); });
+
+    // ---- boot: let the server decide which sign-in flow applies ----
+    fetch("/auth/getAuthMode()", { headers: { "Accept": "application/json" } })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (j) {
+        var mode = j && (j.mode || (j.value && j.value.mode));
+        if (mode === "xsuaa") { sessionStorage.setItem("e2e-mode", "xsuaa"); initXsuaa(); }
+        else { sessionStorage.setItem("e2e-mode", "local"); initLocal(); }
+      })
+      .catch(function () { sessionStorage.setItem("e2e-mode", "local"); initLocal(); });
   </script>
 </body>
 </html>

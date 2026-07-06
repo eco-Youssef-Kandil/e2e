@@ -1,20 +1,16 @@
 _schema-version: "3.2"
 ID: nadec-e2e-governance
-description: NADEC E2E Delivery Governance — CAP service + Fiori portal on BTP (HANA)
+description: NADEC E2E Delivery Governance — CAP service + Fiori portal on BTP (XSUAA SSO)
 version: 0.1.0
 
 # ---------------------------------------------------------------------------
-# CAP service backed by SAP HANA Cloud. The srv module serves the OData API,
-# the /login routes, AND the static Fiori UI (bundled into gen/srv/app). The
-# db-deployer builds the HANA schema and loads the seed CSVs. Auth is the app's
-# own JWT (AUTH_MODE=local) — switch to XSUAA via mta-xsuaa-reference.yaml.
+# XSUAA variant: a standalone approuter fronts the portal and enforces XSUAA
+# login (SSO); the CAP srv validates the XSUAA token (AUTH_MODE=xsuaa) and
+# resolves roles from the DB Users table. UI5 apps are bundled into the
+# approuter's resources folder (html5 module). See mta-xsuaa-reference.yaml.
 #
-# builder: custom / commands: [] → node_modules is NOT bundled; the CF (Linux)
-# buildpack installs deps at staging (correct native binaries for @sap/hana-client).
-#
-# Build & deploy:
-#   npx cds build --production
-#   cp -r app gen/srv/app        # bundle the UI into the service module
+# Build & deploy (cds build run manually with the global cds-dk, then):
+#   cds build --production
 #   mbt build
 #   cf deploy mta_archives/nadec-e2e-governance_0.1.0.mtar
 # ---------------------------------------------------------------------------
@@ -34,7 +30,7 @@ modules:
     requires:
       - name: nadec-e2e-governance-hdi
 
-  # CAP backend service — OData + /login + static UI
+  # CAP backend service — OData + /login roster + /auth (auth = XSUAA)
   - name: nadec-e2e-governance-srv
     type: nodejs
     path: gen/srv
@@ -51,15 +47,66 @@ modules:
           srv-url: ${default-url}
     requires:
       - name: nadec-e2e-governance-hdi
+      - name: nadec-e2e-governance-uaa
+      - name: nadec-e2e-governance-destination
     properties:
       NODE_ENV: production
-      AUTH_MODE: local
-      JWT_SECRET: "9340d76055bfd51a1472698b1c35411305b193950a235b7f058ec0a08a63a7b4"
+      AUTH_MODE: xsuaa
+      JWT_SECRET: "52bcb2e7d6a0775a2835408601db24e8b74c422f24a338d96ea56fa9ef6761e4"
+      SF_DESTINATION_NAME: "SF_PRD_Raw"
+
+  # Standalone approuter — XSUAA login (SSO) + static UI5 + OData proxy
+  - name: nadec-e2e-governance-app
+    type: approuter.nodejs
+    path: approuter
+    parameters:
+      memory: 256M
+      disk-quota: 1024M
+    requires:
+      - name: srv-api
+        group: destinations
+        properties:
+          name: srv-api
+          url: ~{srv-url}
+          forwardAuthToken: true
+      - name: nadec-e2e-governance-uaa
+    build-parameters:
+      # Bundle the static UI5 apps into the approuter's resources folder.
+      requires:
+        - name: nadec-e2e-governance-ui
+          artifacts:
+            - "./*"
+          target-path: resources
+
+  # The static UI5 / Fiori Elements apps (served by the approuter)
+  - name: nadec-e2e-governance-ui
+    type: html5
+    path: app
+    build-parameters:
+      builder: custom
+      commands: []
+      build-result: .
+      supported-platforms: []
 
 resources:
+  # XSUAA — authentication (no role scopes; roles live in the app DB Users table)
+  - name: nadec-e2e-governance-uaa
+    type: org.cloudfoundry.managed-service
+    parameters:
+      service: xsuaa
+      service-plan: application
+      path: ./xs-security.json
+
   # HANA Cloud (HDI container)
   - name: nadec-e2e-governance-hdi
     type: com.sap.xs.hdi-container
     parameters:
       service: hana
       service-plan: hdi-shared
+
+  # BTP Destination service (access to the SuccessFactors "SF_PRD_Raw" destination)
+  - name: nadec-e2e-governance-destination
+    type: org.cloudfoundry.managed-service
+    parameters:
+      service: destination
+      service-plan: lite

@@ -1,6 +1,10 @@
 {
   "welcomeFile": "/project-portal/webapp/index.html",
   "authenticationMethod": "route",
+  "logout": {
+    "logoutEndpoint": "/logout",
+    "logoutPage": "/logout.html"
+  },
   "routes": [
     {
       "source": "^/(governance|auth)/(.*)$",
@@ -10,9 +14,9 @@
       "csrfProtection": true
     },
     {
-      "source": "^/login-users$",
-      "destination": "srv-api",
-      "authenticationType": "xsuaa"
+      "source": "^/logout.html$",
+      "localDir": "resources",
+      "authenticationType": "none"
     },
     {
       "source": "^/(.*)$",

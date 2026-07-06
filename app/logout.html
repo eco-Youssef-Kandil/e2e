@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NADEC E2E Governance — Signed out</title>
+  <style>
+    :root { --nadec-blue: #0033A0; --nadec-blue-dark: #002673; --ink: #1d2d3e; --muted: #5b6b7b; --line: #d9e1e8; }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; font-family: "72", "72full", Arial, Helvetica, sans-serif; color: var(--ink);
+      background: linear-gradient(135deg, #eef3f7 0%, #dce8f0 100%); }
+    .wrap { min-height: 100%; display: flex; align-items: center; justify-content: center; padding: 24px; }
+    .card { width: 100%; max-width: 400px; background: #fff; border: 1px solid var(--line); border-radius: 12px;
+      box-shadow: 0 10px 30px rgba(13, 40, 70, 0.10); padding: 32px 28px; text-align: center; }
+    .brand { display: flex; align-items: center; justify-content: center; gap: 12px; margin-bottom: 14px; }
+    .brand .logo { width: 40px; height: 40px; border-radius: 9px; background: var(--nadec-blue); color: #fff;
+      font-weight: 700; font-size: 18px; display: flex; align-items: center; justify-content: center; letter-spacing: 0.5px; }
+    h1 { font-size: 18px; margin: 0 0 6px; font-weight: 700; }
+    p.sub { color: var(--muted); font-size: 14px; margin: 0 0 24px; }
+    a.signin { display: inline-block; padding: 12px 22px; font-size: 15px; font-weight: 600; color: #fff;
+      background: var(--nadec-blue); border-radius: 8px; text-decoration: none; transition: background 0.15s ease; }
+    a.signin:hover { background: var(--nadec-blue-dark); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <div class="brand">
+        <div class="logo">N</div>
+        <h1>E2E Delivery Governance</h1>
+      </div>
+      <p class="sub">You have been signed out.</p>
+      <a class="signin" href="/">Sign in again</a>
+    </div>
+  </div>
+  <script>
+    // Clear any residual client-side session so a fresh sign-in starts clean.
+    try {
+      ["e2e-auth", "e2e-user-name", "e2e-user-role", "e2e-user-email", "e2e-mode"].forEach(function (k) {
+        sessionStorage.removeItem(k);
+      });
+    } catch (e) { /* storage unavailable — nothing to clear */ }
+  </script>
+</body>
+</html>

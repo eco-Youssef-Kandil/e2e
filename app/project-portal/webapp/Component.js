@@ -250,10 +250,15 @@ sap.ui.define([
         "padding:5px 14px;font-size:13px;font-weight:600;color:" + NADEC_BLUE + ";cursor:pointer;" +
         "background:#fff;border:1px solid #fff;border-radius:6px;";
       out.onclick = function () {
-        sessionStorage.removeItem("e2e-auth");
-        sessionStorage.removeItem("e2e-user-name");
-        sessionStorage.removeItem("e2e-user-role");
-        window.location.replace("login.html");
+        var xsuaa = sessionStorage.getItem("e2e-mode") === "xsuaa";
+        ["e2e-auth", "e2e-user-name", "e2e-user-role", "e2e-user-email", "e2e-mode"].forEach(function (k) {
+          sessionStorage.removeItem(k);
+        });
+        // XSUAA: end the SSO session via the approuter's central logout —
+        // just clearing sessionStorage would let the still-valid session sign
+        // us straight back in. LOCAL: return to the password picker.
+        if (xsuaa) { window.location.href = "/logout"; }
+        else { window.location.replace("login.html"); }
       };
 
       bar.appendChild(back);
@@ -325,10 +330,12 @@ sap.ui.define([
         "padding:5px 12px;font-size:12px;font-weight:600;color:#fff;cursor:pointer;" +
         "background:rgba(255,255,255,0.18);border:1px solid rgba(255,255,255,0.5);border-radius:6px;";
       btn.onclick = function () {
-        sessionStorage.removeItem("e2e-auth");
-        sessionStorage.removeItem("e2e-user-name");
-        sessionStorage.removeItem("e2e-user-role");
-        window.location.replace("login.html");
+        var xsuaa = sessionStorage.getItem("e2e-mode") === "xsuaa";
+        ["e2e-auth", "e2e-user-name", "e2e-user-role", "e2e-user-email", "e2e-mode"].forEach(function (k) {
+          sessionStorage.removeItem(k);
+        });
+        if (xsuaa) { window.location.href = "/logout"; }
+        else { window.location.replace("login.html"); }
       };
       bar.appendChild(who);
       bar.appendChild(btn);
