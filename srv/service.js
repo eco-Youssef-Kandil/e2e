@@ -47,6 +47,61 @@ module.exports = class GovernanceService extends cds.ApplicationService {
       }
     })
 
+    // --- Handover: create a plan from the standard template -------------------
+    // One plan per project; tasks follow the phased handover journey. The
+    // caller sets owners/dates afterwards on the Handover page. fromOwner
+    // defaults to the project's current IT Owner (the delivery-side owner).
+    const HANDOVER_TEMPLATE = [
+      ['Preparation',        'Confirm handover scope & timeline'],
+      ['Preparation',        'Identify receiving support owner'],
+      ['Documentation',      'Finalize solution documentation'],
+      ['Documentation',      'Prepare runbook / SOP for support'],
+      ['Documentation',      'Document known issues & workarounds'],
+      ['Knowledge Transfer', 'Conduct KT sessions with support team'],
+      ['Knowledge Transfer', 'Shadowing — support observes operations'],
+      ['Knowledge Transfer', 'Reverse shadowing — support runs, delivery observes'],
+      ['Access & Setup',     'Grant system access to support team'],
+      ['Access & Setup',     'Set up monitoring & alerting'],
+      ['Access & Setup',     'Register in support ticketing queues'],
+      ['Hypercare',          'Run hypercare period'],
+      ['Hypercare',          'Track & resolve hypercare issues'],
+      ['Sign-off',           'Support owner sign-off'],
+      ['Sign-off',           'Formal handover complete & closure']
+    ]
+    this.on('createHandoverPlan', async (req) => {
+      const projectID = (req.data.projectID || '').trim()
+      if (!projectID) return req.reject(400, 'projectID is required.')
+      const project = await SELECT.one.from('nadec.e2e.Projects').where({ ID: projectID })
+      if (!project) return req.reject(404, `Project ${projectID} does not exist.`)
+      const existing = await SELECT.one.from('nadec.e2e.HandoverPlans')
+        .where({ project_ID: projectID })
+      if (existing) return req.reject(409, `Project ${projectID} already has a handover plan.`)
+
+      try {
+        await INSERT.into('nadec.e2e.HandoverPlans').entries({
+          project_ID: projectID,
+          status_code: 'Not Started',
+          fromOwner_code: project.itOwner_code || null
+        })
+      } catch (e) {
+        // Concurrent create for the same project → unique-key violation.
+        // Surface it as the same 409 the pre-check would have returned.
+        if (/unique|constraint/i.test(e.message || '')) {
+          return req.reject(409, `Project ${projectID} already has a handover plan.`)
+        }
+        throw e
+      }
+      await INSERT.into('nadec.e2e.HandoverTasks').entries(
+        HANDOVER_TEMPLATE.map(([phase, title], i) => ({
+          plan_project_ID: projectID,
+          phase, title,
+          status_code: 'Not Started',
+          sort: (i + 1) * 10
+        }))
+      )
+      return projectID
+    })
+
     // --- Auto-discard abandoned drafts (server-side safety net) ---------------
     // Projects are draft-enabled. If a user clicks Edit and then leaves without
     // Save/Cancel, the draft lingers and the project reopens "frozen" in edit
@@ -270,6 +325,50 @@ module.exports = class GovernanceService extends cds.ApplicationService {
             .where({ project_ID: p.ID }))
         }
       }
+    })
+
+    // --- Daily portfolio snapshot (trend history) ---------------------------
+    // Captures/updates one row per calendar day so the executive dashboard can
+    // chart readiness trends. Runs once on server start and again after every
+    // project save (upsert keyed by date → cheap and idempotent).
+    const captureSnapshot = async () => {
+      try {
+        const today = new Date().toISOString().slice(0, 10)
+        const projects = await SELECT.from('nadec.e2e.Projects').columns('ID', 'riskLevel_code')
+        const readiness = await SELECT.from('nadec.e2e.Readiness').columns('overallReadiness')
+        const goLives = await SELECT.from('nadec.e2e.GoLiveChecklist').columns('readinessPct')
+        const risks = await SELECT.from('nadec.e2e.Risks').columns('status_code')
+
+        const nums = (rows, k) => rows
+          .map((r) => r[k]).filter((v) => v !== null && v !== undefined)
+          .map(Number).filter((v) => !isNaN(v))
+        const avg = (xs) => xs.length
+          ? Math.round((xs.reduce((a, b) => a + b, 0) / xs.length) * 100) / 100
+          : null
+
+        const snap = {
+          snapshotDate: today,
+          projectCount: projects.length,
+          avgE2eReadiness: avg(nums(readiness, 'overallReadiness')),
+          avgGoLive: avg(nums(goLives, 'readinessPct')),
+          highRiskCount: projects.filter((p) =>
+            p.riskLevel_code === 'High' || p.riskLevel_code === 'Critical').length,
+          // A risk with no status yet is still open — only an explicit
+          // Closed/Resolved status takes it off the books (matches the
+          // executive dashboard's open-risk logic).
+          openRiskCount: risks.filter((r) =>
+            !(r.status_code && /^(closed|resolved)$/i.test(r.status_code))).length
+        }
+        await UPSERT.into('nadec.e2e.PortfolioSnapshots').entries(snap)
+      } catch (e) {
+        console.warn('[snapshot] capture skipped:', e.message)
+      }
+    }
+    cds.on('served', captureSnapshot)
+    // Re-capture AFTER the save transaction commits — a detached capture inside
+    // the request would read pre-commit state and persist stale numbers.
+    this.after('SAVE', 'Projects', (_data, req) => {
+      req.on('succeeded', () => setImmediate(captureSnapshot))
     })
 
     return super.init()

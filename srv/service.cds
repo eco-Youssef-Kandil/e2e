@@ -1,4 +1,5 @@
 using nadec.e2e as my from '../db/schema';
+using { sap.changelog as chg } from '@cap-js/change-tracking';
 using nadec.e2e.EmployeeAllocation     as EmployeeAllocationView     from './views';
 using nadec.e2e.ActionRequired         as ActionRequiredView         from './views';
 using nadec.e2e.ProjectCompleteness    as ProjectCompletenessView    from './views';
@@ -73,6 +74,28 @@ service GovernanceService @(path: '/governance') {
   @(restrict: [{ grant: '*', to: 'authenticated-user' }])
   entity Risks           as projection on my.Risks;
 
+  // ---- Handover (plan + tasks) ----
+  // Everyone signed-in works on handovers; only a Manager/Admin may delete a
+  // whole plan. Mirrors the section-level "authenticated-user" grants above.
+  @(restrict: [
+    { grant: ['READ', 'CREATE', 'UPDATE'], to: 'authenticated-user' },
+    { grant: ['DELETE'], to: 'Manager' }
+  ])
+  entity HandoverPlans   as projection on my.HandoverPlans;
+  @(restrict: [
+    { grant: ['READ', 'CREATE', 'UPDATE', 'DELETE'], to: 'authenticated-user' }
+  ])
+  entity HandoverTasks   as projection on my.HandoverTasks;
+  @(restrict: [
+    { grant: ['READ', 'CREATE', 'DELETE'], to: 'authenticated-user' }
+  ])
+  entity HandoverReceivers as projection on my.HandoverReceivers;
+
+  // Creates a handover plan for a project from the standard template
+  // (phased journey of tasks). No-op error if the plan already exists.
+  @(requires: 'authenticated-user')
+  action createHandoverPlan(projectID: String) returns String;
+
   // ---- Dashboards (computed, read-only) ----
   @readonly entity EmployeeAllocation    as projection on EmployeeAllocationView;
   @readonly entity ActionRequired        as projection on ActionRequiredView;
@@ -80,6 +103,22 @@ service GovernanceService @(path: '/governance') {
   // Data completeness — per project (6 section % + overall). The portfolio-wide
   // averages are computed client-side in the Portfolio Health dashboard.
   @readonly entity ProjectCompleteness   as projection on ProjectCompletenessView;
+
+  // Daily portfolio snapshots — captured automatically by the service (see
+  // srv/service.js) so the executive dashboard can chart trends over time.
+  @readonly entity PortfolioSnapshots    as projection on my.PortfolioSnapshots;
+
+  // Portfolio-wide audit feed (Manager/Admin only) — the change-tracking
+  // plugin's ChangeView is only navigable per project (and its hierarchy
+  // elements forbid a second projection), so we read the underlying Changes
+  // table for the executive dashboard's "Recent changes" feed across all
+  // projects. Restricted to Manager (Admin inherits Manager — see role-guard.js).
+  @readonly
+  @(restrict: [{ grant: 'READ', to: 'Manager' }])
+  entity ChangeLog as projection on chg.Changes {
+    ID, entity, attribute, valueChangedFrom, valueChangedTo,
+    modification, objectID, createdAt, createdBy
+  };
 
   // ---- Value-help lookups ----
   // Everyone reads them (they feed the dropdowns / value helps); only the

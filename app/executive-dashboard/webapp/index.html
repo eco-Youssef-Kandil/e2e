@@ -1,0 +1,914 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NADEC E2E — Executive Dashboard</title>
+
+  <style>
+    :root {
+      --nadec-blue: #0033A0;
+      --nadec-blue-dark: #002673;
+      --ink: #1d2d3e;
+      --muted: #5b6b7b;
+      --line: #d9e1e8;
+      --bg: #eef3f7;
+      --green: #2e7d32;
+      --amber: #e58c00;
+      --red: #c62828;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0; min-height: 100%;
+      font-family: "72", "72full", Arial, Helvetica, sans-serif;
+      color: var(--ink); background: var(--bg);
+    }
+    #topBar {
+      position: fixed; top: 0; left: 0; right: 0; height: 48px; z-index: 1000;
+      display: flex; align-items: center; gap: 12px; padding: 0 16px;
+      background: linear-gradient(135deg, var(--nadec-blue), var(--nadec-blue-dark));
+      color: #fff; box-shadow: 0 2px 4px rgba(0,0,0,0.18); font-size: 13px;
+    }
+    #topBar .ghost {
+      padding: 5px 12px; font-size: 13px; font-weight: 600; color: #fff; cursor: pointer;
+      background: rgba(255,255,255,0.14); border: 1px solid rgba(255,255,255,0.5); border-radius: 6px;
+    }
+    #topBar .title { font-weight: 600; font-size: 15px; letter-spacing: 0.3px; white-space: nowrap; }
+    #topBar .spacer { flex: 1 1 auto; }
+    #topBar .who { opacity: 0.85; white-space: nowrap; }
+    #topBar .signout {
+      padding: 5px 14px; font-size: 13px; font-weight: 600; color: var(--nadec-blue); cursor: pointer;
+      background: #fff; border: 1px solid #fff; border-radius: 6px;
+    }
+
+    #content { padding: 68px 20px 32px; max-width: 1400px; margin: 0 auto; }
+    h2.section { font-size: 15px; font-weight: 700; margin: 26px 4px 12px; }
+
+    /* ---- Filter bar ---- */
+    #filters {
+      display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end;
+      background: #fff; border: 1px solid var(--line); border-radius: 12px;
+      padding: 12px 16px; margin-bottom: 16px; box-shadow: 0 4px 14px rgba(13,40,70,0.06);
+    }
+    #filters .f { display: flex; flex-direction: column; gap: 4px; }
+    #filters label { font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.4px; }
+    #filters select {
+      min-width: 160px; padding: 7px 10px; font-size: 13px; color: var(--ink);
+      border: 1px solid var(--line); border-radius: 8px; background: #fff; cursor: pointer;
+    }
+    #filters .btn {
+      padding: 8px 14px; font-size: 13px; font-weight: 600; border-radius: 8px; cursor: pointer;
+      border: 1px solid var(--line); background: #fff; color: var(--ink);
+    }
+    #filters .btn.primary { background: var(--nadec-blue); border-color: var(--nadec-blue); color: #fff; }
+    #filters .spacer { flex: 1 1 auto; }
+    #filterInfo { font-size: 12px; color: var(--muted); align-self: center; }
+
+    /* ---- KPI cards ---- */
+    .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 14px; }
+    .kpi {
+      background: #fff; border: 1px solid var(--line); border-radius: 12px;
+      padding: 16px 18px; box-shadow: 0 4px 14px rgba(13,40,70,0.06);
+    }
+    .kpi .label { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+    .kpi .value { font-size: 30px; font-weight: 700; margin-top: 6px; line-height: 1.1; }
+    .kpi .hint  { font-size: 12px; color: var(--muted); margin-top: 4px; }
+    .kpi .value.blue  { color: var(--nadec-blue); }
+    .kpi .value.green { color: var(--green); }
+    .kpi .value.amber { color: var(--amber); }
+    .kpi .value.red   { color: var(--red); }
+
+    /* ---- Cards / grid ---- */
+    .grid { display: grid; grid-template-columns: repeat(12, 1fr); gap: 14px; }
+    .card {
+      background: #fff; border: 1px solid var(--line); border-radius: 12px;
+      padding: 16px 18px 12px; box-shadow: 0 4px 14px rgba(13,40,70,0.06);
+      display: flex; flex-direction: column;
+    }
+    .card h3 { font-size: 14px; font-weight: 700; margin: 0 0 10px; }
+    .card .sub { font-size: 12px; color: var(--muted); margin: -6px 0 10px; }
+    .card .chart-wrap { position: relative; flex: 1 1 auto; min-height: 240px; }
+    .span-4 { grid-column: span 4; }
+    .span-6 { grid-column: span 6; }
+    .span-8 { grid-column: span 8; }
+    .span-12 { grid-column: span 12; }
+    @media (max-width: 1000px) { .span-4, .span-6, .span-8 { grid-column: span 12; } }
+    .empty { color: var(--muted); font-size: 13px; padding: 30px 0; text-align: center; }
+
+    /* ---- Tables ---- */
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+    th { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.4px; font-weight: 600;
+         position: sticky; top: 0; background: #fff; user-select: none; white-space: nowrap; }
+    #projTable th { cursor: pointer; }
+    th .arrow { font-size: 10px; opacity: 0.7; }
+    td a { color: var(--nadec-blue); font-weight: 600; text-decoration: none; }
+    td a:hover { text-decoration: underline; }
+    .table-scroll { max-height: 460px; overflow: auto; border: 1px solid var(--line); border-radius: 8px; }
+    .badge {
+      display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 12px; font-weight: 600;
+      background: #eef3f7; color: var(--muted); white-space: nowrap;
+    }
+    .badge.red   { background: #fdecea; color: var(--red); }
+    .badge.amber { background: #fdf3e3; color: var(--amber); }
+    .badge.green { background: #e8f5e9; color: var(--green); }
+    .badge.blue  { background: #e8eefb; color: var(--nadec-blue); }
+    .meter { position: relative; background: #eef1f4; border-radius: 999px; height: 16px; min-width: 110px; overflow: hidden; }
+    .meter > span { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 999px; }
+    .meter .txt { position: absolute; width: 100%; text-align: center; font-size: 11px; font-weight: 700; line-height: 16px; color: var(--ink); }
+
+    #loading, #error { margin-top: 90px; text-align: center; color: var(--muted); font-size: 15px; }
+    #error { color: var(--red); display: none; }
+
+    /* ---- Print (PDF export) ---- */
+    @media print {
+      #topBar, #filters .btn, #filters select, #filters label { display: none !important; }
+      #filters { border: none; box-shadow: none; padding: 0; }
+      body { background: #fff; }
+      #content { padding: 0; max-width: none; }
+      .card, .kpi { box-shadow: none; break-inside: avoid; }
+      .table-scroll { max-height: none; overflow: visible; }
+    }
+  </style>
+
+  <script>
+    (function () {
+      if (!sessionStorage.getItem("e2e-auth")) {
+        window.location.replace("../../project-portal/webapp/login.html");
+      }
+    })();
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <div id="topBar">
+    <button class="ghost" id="backBtn">← Portal</button>
+    <span class="title">Executive Dashboard</span>
+    <div class="spacer"></div>
+    <span class="who" id="who"></span>
+    <button class="signout" id="signoutBtn">Sign out</button>
+  </div>
+
+  <div id="content" style="display:none">
+
+    <div id="filters">
+      <div class="f"><label for="fOwner">Developer</label><select id="fOwner"></select></div>
+      <div class="f"><label for="fDomain">Business Domain</label><select id="fDomain"></select></div>
+      <div class="f"><label for="fPhase">Phase</label><select id="fPhase"></select></div>
+      <div class="f"><label for="fCategory">Work Category</label><select id="fCategory"></select></div>
+      <div class="f"><label for="fRisk">Risk Level</label><select id="fRisk"></select></div>
+      <button class="btn" id="clearBtn">Clear filters</button>
+      <div class="spacer"></div>
+      <span id="filterInfo"></span>
+      <button class="btn" id="csvBtn">⬇ Export CSV</button>
+      <button class="btn primary" id="printBtn">🖨 Print / PDF</button>
+    </div>
+
+    <div class="kpis" id="kpis"></div>
+
+    <h2 class="section">Portfolio breakdown</h2>
+    <div class="grid">
+      <div class="card span-4"><h3>Projects by current phase</h3><div class="chart-wrap"><canvas id="chPhase"></canvas></div></div>
+      <div class="card span-4"><h3>Projects by risk level</h3><div class="chart-wrap"><canvas id="chRisk"></canvas></div></div>
+      <div class="card span-4"><h3>Work category split</h3><div class="chart-wrap"><canvas id="chCategory"></canvas></div></div>
+    </div>
+
+    <h2 class="section">Readiness &amp; trend</h2>
+    <div class="grid">
+      <div class="card span-6"><h3>E2E readiness distribution</h3><div class="chart-wrap"><canvas id="chReadiness"></canvas></div></div>
+      <div class="card span-6">
+        <h3>Portfolio readiness trend</h3>
+        <div class="sub">Captured automatically once per day — the line grows as history accumulates.</div>
+        <div class="chart-wrap"><canvas id="chTrend"></canvas></div>
+      </div>
+    </div>
+
+    <h2 class="section">Team workload</h2>
+    <div class="grid">
+      <div class="card span-6"><h3>Projects per developer</h3><div class="chart-wrap"><canvas id="chOwner"></canvas></div></div>
+      <div class="card span-6">
+        <h3>75 / 25 allocation per developer</h3>
+        <div class="sub">Target: 75% Business Impact / 25% Support &amp; Operations per developer.</div>
+        <div class="chart-wrap"><canvas id="chAlloc"></canvas></div>
+      </div>
+      <div class="card span-12"><h3>Projects by business domain</h3><div class="chart-wrap" style="min-height:280px"><canvas id="chDomain"></canvas></div></div>
+    </div>
+
+    <h2 class="section">Risks &amp; blockers</h2>
+    <div class="grid">
+      <div class="card span-4"><h3>Open risks by status</h3><div class="chart-wrap"><canvas id="chRiskStatus"></canvas></div></div>
+      <div class="card span-8"><h3>Open risks by blocking team</h3><div class="chart-wrap"><canvas id="chBlockingTeam"></canvas></div></div>
+      <div class="card span-12">
+        <h3>Open risk register</h3>
+        <div class="table-scroll" style="max-height:320px">
+          <table id="riskTable">
+            <thead><tr><th>Project</th><th>Risk / Dependency</th><th>Blocking Team</th><th>Impact</th><th>Owner</th><th>Due</th><th>Status</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <div class="empty" id="riskEmpty" style="display:none">No open risks for the current filter — nothing is blocked.</div>
+      </div>
+    </div>
+
+    <h2 class="section">Testing / QA health</h2>
+    <div class="grid">
+      <div class="card span-6"><h3>Test status across projects</h3><div class="chart-wrap"><canvas id="chTestStatus"></canvas></div></div>
+      <div class="card span-6"><h3>Open bugs by severity</h3><div class="chart-wrap"><canvas id="chBugs"></canvas></div></div>
+    </div>
+
+    <h2 class="section">Timeline</h2>
+    <div class="grid">
+      <div class="card span-12">
+        <h3>Go-live timeline &amp; overdue flags</h3>
+        <div class="sub">Based on each project's Start / Target Go-Live / Actual Go-Live dates (General Info tab). Overdue = target date passed with no actual go-live.</div>
+        <div class="table-scroll" style="max-height:340px">
+          <table id="timelineTable">
+            <thead><tr><th>Project</th><th>Developer</th><th>Start</th><th>Target Go-Live</th><th>Actual Go-Live</th><th>Status</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <div class="empty" id="timelineEmpty" style="display:none">
+          No project dates entered yet. Add Start / Target Go-Live dates on a project's General Info tab and they will appear here with overdue tracking.
+        </div>
+      </div>
+    </div>
+
+    <h2 class="section">Data quality</h2>
+    <div class="grid">
+      <div class="card span-12">
+        <h3>Projects with incomplete data</h3>
+        <div class="sub" id="dqSummary"></div>
+        <div class="table-scroll" style="max-height:340px">
+          <table id="dqTable">
+            <thead><tr><th>Project</th><th>Developer</th><th>Overall</th><th>What's missing</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <div class="empty" id="dqEmpty" style="display:none">Every project in the current view has complete data.</div>
+      </div>
+    </div>
+
+    <div id="changesSection" style="display:none">
+      <h2 class="section">Recent changes (audit trail)</h2>
+      <div class="grid">
+        <div class="card span-12">
+          <h3>Latest edits across the portfolio</h3>
+          <div class="sub">Manager-only view. The full per-project history is on each project's "Change History" tab.</div>
+          <div class="table-scroll" style="max-height:340px">
+            <table id="changesTable">
+              <thead><tr><th>When</th><th>Changed By</th><th>Project</th><th>Section</th><th>Field</th><th>Old Value</th><th>New Value</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <div class="empty" id="changesEmpty" style="display:none">No changes recorded yet — edits made in the portal will appear here.</div>
+        </div>
+      </div>
+    </div>
+
+    <h2 class="section">All projects</h2>
+    <div class="card span-12">
+      <div class="table-scroll">
+        <table id="projTable">
+          <thead>
+            <tr>
+              <th data-k="ID">ID <span class="arrow"></span></th>
+              <th data-k="name">Project <span class="arrow"></span></th>
+              <th data-k="owner">Developer <span class="arrow"></span></th>
+              <th data-k="phase">Phase <span class="arrow"></span></th>
+              <th data-k="risk">Risk <span class="arrow"></span></th>
+              <th data-k="target">Target Go-Live <span class="arrow"></span></th>
+              <th data-k="e2e">E2E Readiness <span class="arrow"></span></th>
+              <th data-k="golive">Go-Live <span class="arrow"></span></th>
+              <th data-k="util">Utilization <span class="arrow"></span></th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div id="loading">Loading portfolio data…</div>
+  <div id="error"></div>
+
+  <script>
+    "use strict";
+
+    // ---- Top bar -----------------------------------------------------------
+    var userName = sessionStorage.getItem("e2e-user-name") || "";
+    var userRole = sessionStorage.getItem("e2e-user-role") || "";
+    document.getElementById("who").textContent = userName + (userRole ? " · " + userRole : "");
+    document.getElementById("backBtn").onclick = function () {
+      window.location.href = "../../project-portal/webapp/index.html";
+    };
+    document.getElementById("signoutBtn").onclick = function () {
+      sessionStorage.removeItem("e2e-auth");
+      sessionStorage.removeItem("e2e-user-name");
+      sessionStorage.removeItem("e2e-user-role");
+      window.location.replace("../../project-portal/webapp/login.html");
+    };
+
+    // ---- Constants ----------------------------------------------------------
+    var PALETTE = ["#0033A0", "#3f6ad8", "#7ea0ec", "#00a3a3", "#61c0bf", "#e58c00",
+                   "#f2b950", "#c62828", "#8e5ea2", "#5b6b7b", "#2e7d32", "#88b04b"];
+    var RISK_COLORS = { Critical: "#8e0000", High: "#c62828", Medium: "#e58c00", Low: "#2e7d32" };
+    var CLOSED_RISK = /^(closed|resolved)$/i;
+
+    function bandColor(pct) {
+      if (pct >= 80) return "#2e7d32";
+      if (pct >= 40) return "#e58c00";
+      return "#c62828";
+    }
+    function esc(s) {
+      return String(s === null || s === undefined ? "" : s)
+        .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+    }
+    // Readiness values are stored on the 0..100 scale (srv/service.js pct2 +
+    // normalized seed CSVs). Guard against nulls only.
+    function numOrNull(v) {
+      if (v === null || v === undefined || isNaN(v)) return null;
+      return Number(v);
+    }
+    function avg(nums) {
+      var xs = nums.filter(function (n) { return n !== null && n !== undefined && !isNaN(n); });
+      if (!xs.length) return null;
+      return xs.reduce(function (a, b) { return a + Number(b); }, 0) / xs.length;
+    }
+    function countBy(rows, fn) {
+      var m = {};
+      rows.forEach(function (r) {
+        var k = fn(r) || "Not set";
+        m[k] = (m[k] || 0) + 1;
+      });
+      return m;
+    }
+    function sortedEntries(m, desc) {
+      return Object.keys(m).map(function (k) { return [k, m[k]]; })
+        .sort(function (a, b) { return desc ? b[1] - a[1] : a[1] - b[1]; });
+    }
+    function fmtDate(d) { return d ? d : "—"; }
+
+    Chart.defaults.font.family = "'72','72full',Arial,Helvetica,sans-serif";
+    Chart.defaults.color = "#5b6b7b";
+    Chart.defaults.plugins.legend.labels.boxWidth = 12;
+
+    // ---- Data loading --------------------------------------------------------
+    var AUTH = sessionStorage.getItem("e2e-auth");
+    function odata(path) {
+      return fetch("/governance/" + path, { headers: { Authorization: AUTH } })
+        .then(function (r) {
+          if (r.status === 401) {
+            sessionStorage.removeItem("e2e-auth");
+            window.location.replace("../../project-portal/webapp/login.html");
+            throw new Error("Not authorized");
+          }
+          if (!r.ok) {
+            var err = new Error("Request failed: " + r.status + " " + path);
+            err.status = r.status;
+            throw err;
+          }
+          return r.json();
+        })
+        .then(function (j) { return j.value || []; });
+    }
+
+    var DATA = { projects: [], risks: [], testing: [], snapshots: [], completeness: {}, changes: null };
+    var charts = {};   // id → Chart instance (destroyed on re-render)
+
+    Promise.all([
+      odata("Projects?$expand=phase($select=name),riskLevel($select=name),workCategory($select=name)," +
+            "itOwner($select=name),domain($select=name)," +
+            "readiness($select=overallReadiness),goLive($select=readinessPct)" +
+            "&$select=ID,name,startDate,targetGoLiveDate,actualGoLiveDate,utilization&$top=5000"),
+      odata("Risks?$expand=blockingTeam($select=name),status($select=name),impact($select=name)," +
+            "owner($select=name),project($select=ID,name)&$top=5000"),
+      odata("Testing?$expand=testStatus($select=name),testPhase($select=name)," +
+            "bugSeverity($select=name),bugStatus($select=name)&$top=5000"),
+      odata("PortfolioSnapshots?$orderby=snapshotDate&$top=5000"),
+      odata("ProjectCompleteness?$top=5000"),
+      // Manager-only audit feed — a 403 for employees just hides the section;
+      // any other failure is a real error and must not be silently swallowed.
+      odata("ChangeLog?$orderby=createdAt desc&$top=40").catch(function (err) {
+        if (err && err.status === 403) return null;
+        throw err;
+      })
+    ]).then(function (res) {
+      DATA.projects = res[0];
+      DATA.risks = res[1];
+      DATA.testing = res[2];
+      DATA.snapshots = res[3];
+      res[4].forEach(function (c) { DATA.completeness[c.ID] = c; });
+      DATA.changes = res[5];
+      document.getElementById("loading").style.display = "none";
+      document.getElementById("content").style.display = "";
+      buildFilters();
+      renderChanges();
+      renderAll();
+    }).catch(function (err) {
+      document.getElementById("loading").style.display = "none";
+      var e = document.getElementById("error");
+      e.style.display = "";
+      e.textContent = "Could not load dashboard data: " + (err && err.message ? err.message : "unknown error");
+    });
+
+    // ---- Filters --------------------------------------------------------------
+    var FILTER_DEFS = [
+      { id: "fOwner",    get: function (p) { return p.itOwner && p.itOwner.name; } },
+      { id: "fDomain",   get: function (p) { return p.domain && p.domain.name; } },
+      { id: "fPhase",    get: function (p) { return p.phase && p.phase.name; } },
+      { id: "fCategory", get: function (p) { return p.workCategory && p.workCategory.name; } },
+      { id: "fRisk",     get: function (p) { return p.riskLevel && p.riskLevel.name; } }
+    ];
+
+    function buildFilters() {
+      FILTER_DEFS.forEach(function (f) {
+        var sel = document.getElementById(f.id);
+        var values = Object.keys(countBy(DATA.projects, f.get)).sort();
+        sel.innerHTML = '<option value="">All</option>' + values.map(function (v) {
+          return '<option value="' + esc(v) + '">' + esc(v) + "</option>";
+        }).join("");
+        sel.onchange = renderAll;
+      });
+      document.getElementById("clearBtn").onclick = function () {
+        FILTER_DEFS.forEach(function (f) { document.getElementById(f.id).value = ""; });
+        renderAll();
+      };
+      document.getElementById("printBtn").onclick = function () { window.print(); };
+      document.getElementById("csvBtn").onclick = exportCsv;
+    }
+
+    function filteredProjects() {
+      var active = FILTER_DEFS.map(function (f) {
+        return { get: f.get, val: document.getElementById(f.id).value };
+      }).filter(function (f) { return f.val; });
+      if (!active.length) return DATA.projects.slice();
+      return DATA.projects.filter(function (p) {
+        return active.every(function (f) { return (f.get(p) || "Not set") === f.val; });
+      });
+    }
+
+    // ---- CSV export -------------------------------------------------------------
+    function exportCsv() {
+      var projs = filteredProjects();
+      var q = function (v) { return '"' + String(v === null || v === undefined ? "" : v).replace(/"/g, '""') + '"'; };
+      var lines = [["ID","Project","Developer","Phase","Work Category","Business Domain","Risk Level",
+                    "Start Date","Target Go-Live","Actual Go-Live","E2E Readiness %","Go-Live Readiness %"].join(",")];
+      projs.forEach(function (p) {
+        lines.push([
+          q(p.ID), q(p.name),
+          q(p.itOwner && p.itOwner.name), q(p.phase && p.phase.name),
+          q(p.workCategory && p.workCategory.name), q(p.domain && p.domain.name),
+          q(p.riskLevel && p.riskLevel.name),
+          q(p.startDate), q(p.targetGoLiveDate), q(p.actualGoLiveDate),
+          q(p.readiness ? p.readiness.overallReadiness : ""),
+          q(p.goLive ? p.goLive.readinessPct : "")
+        ].join(","));
+      });
+      var blob = new Blob(["\uFEFF" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
+      var a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "nadec-portfolio-" + new Date().toISOString().slice(0, 10) + ".csv";
+      document.body.appendChild(a); a.click();
+      setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 500);
+    }
+
+    // ---- Chart helper (destroys previous instance) --------------------------------
+    function drawChart(id, cfg) {
+      if (charts[id]) { charts[id].destroy(); }
+      charts[id] = new Chart(document.getElementById(id), cfg);
+    }
+
+    // ---- Render everything for the current filter ---------------------------------
+    var sortKey = "e2e", sortAsc = true;
+
+    function renderAll() {
+      var projs = filteredProjects();
+      var ids = {};
+      projs.forEach(function (p) { ids[p.ID] = true; });
+      var risks = DATA.risks.filter(function (r) { return r.project && ids[r.project.ID]; });
+      var testing = DATA.testing.filter(function (t) { return ids[t.project_ID]; });
+
+      var anyFilter = FILTER_DEFS.some(function (f) { return document.getElementById(f.id).value; });
+      document.getElementById("filterInfo").textContent =
+        anyFilter ? ("Filtered: " + projs.length + " of " + DATA.projects.length + " projects") :
+        (DATA.projects.length + " projects");
+
+      renderKpis(projs, risks);
+      renderBreakdown(projs);
+      renderReadinessAndTrend(projs);
+      renderWorkload(projs);
+      renderRisks(risks);
+      renderTesting(testing);
+      renderTimeline(projs);
+      renderDataQuality(projs);
+      drawTable(projs);
+    }
+
+    function renderKpis(projs, risks) {
+      var e2eVals = projs.map(function (p) { return p.readiness ? numOrNull(p.readiness.overallReadiness) : null; });
+      var goLiveVals = projs.map(function (p) { return p.goLive ? numOrNull(p.goLive.readinessPct) : null; });
+      var avgE2E = avg(e2eVals), avgGoLive = avg(goLiveVals);
+      var highRisk = projs.filter(function (p) {
+        return p.riskLevel && /^(high|critical)$/i.test((p.riskLevel.name || "").trim());
+      }).length;
+      var openRisks = risks.filter(function (r) {
+        return !(r.status && CLOSED_RISK.test(r.status.name || ""));
+      }).length;
+      var today = new Date().toISOString().slice(0, 10);
+      var overdue = projs.filter(function (p) {
+        return p.targetGoLiveDate && !p.actualGoLiveDate && p.targetGoLiveDate < today;
+      }).length;
+
+      var kpis = [
+        { label: "Projects", value: projs.length, cls: "blue", hint: "in current view" },
+        { label: "Avg E2E readiness", value: avgE2E === null ? "—" : Math.round(avgE2E) + "%",
+          cls: avgE2E >= 80 ? "green" : avgE2E >= 40 ? "amber" : "red", hint: "7 lifecycle stages" },
+        { label: "Avg go-live readiness", value: avgGoLive === null ? "—" : Math.round(avgGoLive) + "%",
+          cls: avgGoLive >= 80 ? "green" : avgGoLive >= 40 ? "amber" : "red", hint: "8 gate checklist" },
+        { label: "High-risk projects", value: highRisk, cls: highRisk > 0 ? "red" : "green", hint: "High or Critical" },
+        { label: "Open risks", value: openRisks, cls: openRisks > 0 ? "amber" : "green", hint: "blockers & dependencies" },
+        { label: "Overdue go-lives", value: overdue, cls: overdue > 0 ? "red" : "green", hint: "target date passed" }
+      ];
+      document.getElementById("kpis").innerHTML = kpis.map(function (k) {
+        return '<div class="kpi"><div class="label">' + esc(k.label) + '</div>' +
+               '<div class="value ' + k.cls + '">' + esc(k.value) + '</div>' +
+               '<div class="hint">' + esc(k.hint) + '</div></div>';
+      }).join("");
+    }
+
+    function renderBreakdown(projs) {
+      var phases = sortedEntries(countBy(projs, function (p) { return p.phase && p.phase.name; }), true);
+      drawChart("chPhase", {
+        type: "doughnut",
+        data: { labels: phases.map(function (e) { return e[0]; }),
+          datasets: [{ data: phases.map(function (e) { return e[1]; }), backgroundColor: PALETTE, borderWidth: 2, borderColor: "#fff" }] },
+        options: { maintainAspectRatio: false, cutout: "58%", plugins: { legend: { position: "right" } } }
+      });
+
+      var riskOrder = ["Critical", "High", "Medium", "Low", "Not set"];
+      var riskMap = countBy(projs, function (p) { return p.riskLevel && p.riskLevel.name; });
+      var riskLabels = riskOrder.filter(function (k) { return riskMap[k]; })
+        .concat(Object.keys(riskMap).filter(function (k) { return riskOrder.indexOf(k) < 0; }));
+      drawChart("chRisk", {
+        type: "bar",
+        data: { labels: riskLabels,
+          datasets: [{ data: riskLabels.map(function (k) { return riskMap[k]; }),
+            backgroundColor: riskLabels.map(function (k) { return RISK_COLORS[k] || "#5b6b7b"; }),
+            borderRadius: 6, maxBarThickness: 56 }] },
+        options: { maintainAspectRatio: false, plugins: { legend: { display: false } },
+          scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } }
+      });
+
+      var cats = sortedEntries(countBy(projs, function (p) { return p.workCategory && p.workCategory.name; }), true);
+      drawChart("chCategory", {
+        type: "doughnut",
+        data: { labels: cats.map(function (e) { return e[0]; }),
+          datasets: [{ data: cats.map(function (e) { return e[1]; }),
+            backgroundColor: ["#0033A0", "#e58c00", "#7ea0ec", "#5b6b7b"], borderWidth: 2, borderColor: "#fff" }] },
+        options: { maintainAspectRatio: false, cutout: "58%", plugins: { legend: { position: "right" } } }
+      });
+
+      var domains = sortedEntries(countBy(projs, function (p) { return p.domain && p.domain.name; }), true);
+      drawChart("chDomain", {
+        type: "bar",
+        data: { labels: domains.map(function (e) { return e[0]; }),
+          datasets: [{ data: domains.map(function (e) { return e[1]; }), backgroundColor: PALETTE, borderRadius: 6, maxBarThickness: 48 }] },
+        options: { maintainAspectRatio: false, plugins: { legend: { display: false } },
+          scales: { y: { beginAtZero: true, ticks: { precision: 0 } },
+                    x: { ticks: { autoSkip: false, maxRotation: 40, minRotation: 0 } } } }
+      });
+    }
+
+    function renderReadinessAndTrend(projs) {
+      var e2eVals = projs.map(function (p) { return p.readiness ? numOrNull(p.readiness.overallReadiness) : null; });
+      var buckets = [
+        { label: "0–19%", lo: 0, hi: 20 }, { label: "20–39%", lo: 20, hi: 40 },
+        { label: "40–59%", lo: 40, hi: 60 }, { label: "60–79%", lo: 60, hi: 80 },
+        { label: "80–100%", lo: 80, hi: 101 }
+      ];
+      var counts = buckets.map(function (b) {
+        return e2eVals.filter(function (v) { return v !== null && v >= b.lo && v < b.hi; }).length;
+      });
+      var missing = e2eVals.filter(function (v) { return v === null; }).length;
+      var labels = buckets.map(function (b) { return b.label; });
+      var colors = ["#c62828", "#e58c00", "#f2b950", "#88b04b", "#2e7d32"];
+      if (missing) { labels.push("Not started"); counts.push(missing); colors.push("#9aa8b5"); }
+      drawChart("chReadiness", {
+        type: "bar",
+        data: { labels: labels, datasets: [{ data: counts, backgroundColor: colors, borderRadius: 6, maxBarThickness: 64 }] },
+        options: { maintainAspectRatio: false, plugins: { legend: { display: false } },
+          scales: { y: { beginAtZero: true, ticks: { precision: 0 }, title: { display: true, text: "Projects" } } } }
+      });
+
+      var snaps = DATA.snapshots;
+      drawChart("chTrend", {
+        type: "line",
+        data: {
+          labels: snaps.map(function (s) { return s.snapshotDate; }),
+          datasets: [
+            { label: "Avg E2E readiness %", data: snaps.map(function (s) { return numOrNull(s.avgE2eReadiness); }),
+              borderColor: "#0033A0", backgroundColor: "rgba(0,51,160,0.08)", fill: true, tension: 0.25, pointRadius: 4 },
+            { label: "Avg go-live readiness %", data: snaps.map(function (s) { return numOrNull(s.avgGoLive); }),
+              borderColor: "#e58c00", backgroundColor: "rgba(229,140,0,0.08)", fill: true, tension: 0.25, pointRadius: 4 }
+          ]
+        },
+        options: { maintainAspectRatio: false,
+          plugins: { legend: { position: "bottom" } },
+          scales: { y: { beginAtZero: true, max: 100, ticks: { callback: function (v) { return v + "%"; } } } } }
+      });
+    }
+
+    function renderWorkload(projs) {
+      var owners = sortedEntries(countBy(projs, function (p) { return p.itOwner && p.itOwner.name; }), true);
+      drawChart("chOwner", {
+        type: "bar",
+        data: { labels: owners.map(function (e) { return e[0]; }),
+          datasets: [{ data: owners.map(function (e) { return e[1]; }), backgroundColor: "#0033A0", borderRadius: 6, maxBarThickness: 20 }] },
+        options: { indexAxis: "y", maintainAspectRatio: false, plugins: { legend: { display: false } },
+          scales: { x: { beginAtZero: true, ticks: { precision: 0 } } } }
+      });
+
+      // 75/25: % Business Impact vs % Support per developer (client-side from
+      // the filtered project set, so it respects the filter bar).
+      var per = {};
+      projs.forEach(function (p) {
+        var o = (p.itOwner && p.itOwner.name);
+        if (!o) return;
+        var cat = (p.workCategory && p.workCategory.name) || "Uncategorized";
+        per[o] = per[o] || { bi: 0, sup: 0, unc: 0 };
+        if (/business impact/i.test(cat)) per[o].bi++;
+        else if (/support/i.test(cat)) per[o].sup++;
+        else per[o].unc++;
+      });
+      var names = Object.keys(per).sort(function (a, b) {
+        var ta = per[a].bi + per[a].sup + per[a].unc, tb = per[b].bi + per[b].sup + per[b].unc;
+        return tb - ta;
+      });
+      var pct = function (part, o) {
+        var t = per[o].bi + per[o].sup + per[o].unc;
+        return t ? Math.round((part / t) * 100) : 0;
+      };
+      drawChart("chAlloc", {
+        type: "bar",
+        data: {
+          labels: names,
+          datasets: [
+            { label: "Business Impact %", data: names.map(function (o) { return pct(per[o].bi, o); }), backgroundColor: "#0033A0", borderRadius: 4, maxBarThickness: 18 },
+            { label: "Support %", data: names.map(function (o) { return pct(per[o].sup, o); }), backgroundColor: "#e58c00", borderRadius: 4, maxBarThickness: 18 },
+            { label: "Uncategorized %", data: names.map(function (o) { return pct(per[o].unc, o); }), backgroundColor: "#9aa8b5", borderRadius: 4, maxBarThickness: 18 }
+          ]
+        },
+        options: { indexAxis: "y", maintainAspectRatio: false,
+          plugins: { legend: { position: "bottom" },
+            tooltip: { callbacks: { label: function (c) { return c.dataset.label + ": " + c.parsed.x + "%"; } } } },
+          scales: { x: { stacked: true, max: 100, ticks: { callback: function (v) { return v + "%"; } } },
+                    y: { stacked: true } } }
+      });
+    }
+
+    function renderRisks(risks) {
+      var open = risks.filter(function (r) { return !(r.status && CLOSED_RISK.test(r.status.name || "")); });
+
+      var byStatus = sortedEntries(countBy(open, function (r) { return r.status && r.status.name; }), true);
+      drawChart("chRiskStatus", {
+        type: "doughnut",
+        data: { labels: byStatus.map(function (e) { return e[0]; }),
+          datasets: [{ data: byStatus.map(function (e) { return e[1]; }),
+            backgroundColor: ["#e58c00", "#c62828", "#3f6ad8", "#5b6b7b", "#8e5ea2"], borderWidth: 2, borderColor: "#fff" }] },
+        options: { maintainAspectRatio: false, cutout: "58%", plugins: { legend: { position: "right" } } }
+      });
+
+      var byTeam = sortedEntries(countBy(open, function (r) { return r.blockingTeam && r.blockingTeam.name; }), true);
+      drawChart("chBlockingTeam", {
+        type: "bar",
+        data: { labels: byTeam.map(function (e) { return e[0]; }),
+          datasets: [{ data: byTeam.map(function (e) { return e[1]; }), backgroundColor: "#c62828", borderRadius: 6, maxBarThickness: 44 }] },
+        options: { maintainAspectRatio: false, plugins: { legend: { display: false } },
+          scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } }
+      });
+
+      var tbody = document.querySelector("#riskTable tbody");
+      var today = new Date().toISOString().slice(0, 10);
+      tbody.innerHTML = open.map(function (r) {
+        var proj = r.project || {};
+        var impact = (r.impact && r.impact.name) || "—";
+        var impactCls = /critical|high/i.test(impact) ? "red" : /medium/i.test(impact) ? "amber" : /low/i.test(impact) ? "green" : "";
+        var overdueDue = r.dueDate && r.dueDate < today;
+        var href = "../../project-portal/webapp/index.html#/Projects(ID='" + encodeURIComponent(proj.ID || "") + "',IsActiveEntity=true)";
+        return "<tr>" +
+          '<td><a href="' + esc(href) + '">' + esc(proj.ID || "—") + "</a><br><span style=\"color:var(--muted);font-size:11px\">" + esc(proj.name || "") + "</span></td>" +
+          "<td>" + esc(r.description || "—") + "</td>" +
+          "<td>" + esc((r.blockingTeam && r.blockingTeam.name) || "—") + "</td>" +
+          '<td><span class="badge ' + impactCls + '">' + esc(impact) + "</span></td>" +
+          "<td>" + esc((r.owner && r.owner.name) || "—") + "</td>" +
+          "<td>" + (overdueDue ? '<span class="badge red">' + esc(r.dueDate) + " ⚠</span>" : esc(fmtDate(r.dueDate))) + "</td>" +
+          '<td><span class="badge blue">' + esc((r.status && r.status.name) || "—") + "</span></td>" +
+          "</tr>";
+      }).join("");
+      document.getElementById("riskEmpty").style.display = open.length ? "none" : "";
+    }
+
+    function renderTesting(testing) {
+      var byStatus = sortedEntries(countBy(testing.filter(function (t) { return t.testStatus; }),
+        function (t) { return t.testStatus && t.testStatus.name; }), true);
+      var statusColors = { Passed: "#2e7d32", Failed: "#c62828", Blocked: "#8e0000",
+        "In Progress": "#e58c00", "Not Started": "#9aa8b5" };
+      drawChart("chTestStatus", {
+        type: "bar",
+        data: { labels: byStatus.map(function (e) { return e[0]; }),
+          datasets: [{ data: byStatus.map(function (e) { return e[1]; }),
+            backgroundColor: byStatus.map(function (e) { return statusColors[e[0]] || "#3f6ad8"; }),
+            borderRadius: 6, maxBarThickness: 56 }] },
+        options: { maintainAspectRatio: false, plugins: { legend: { display: false } },
+          scales: { y: { beginAtZero: true, ticks: { precision: 0 }, title: { display: true, text: "Projects" } } } }
+      });
+
+      // Open bugs = testing rows whose bugStatus is not Closed; count by severity.
+      var openBugs = testing.filter(function (t) {
+        return t.bugSeverity && t.bugStatus && !/^closed$/i.test(t.bugStatus.name || "");
+      });
+      var sevOrder = ["Critical", "High", "Medium", "Low"];
+      var sevMap = countBy(openBugs, function (t) { return t.bugSeverity && t.bugSeverity.name; });
+      var sevLabels = sevOrder.filter(function (k) { return sevMap[k]; })
+        .concat(Object.keys(sevMap).filter(function (k) { return sevOrder.indexOf(k) < 0; }));
+      drawChart("chBugs", {
+        type: "bar",
+        data: { labels: sevLabels,
+          datasets: [{ data: sevLabels.map(function (k) { return sevMap[k]; }),
+            backgroundColor: sevLabels.map(function (k) { return RISK_COLORS[k] || "#5b6b7b"; }),
+            borderRadius: 6, maxBarThickness: 56 }] },
+        options: { maintainAspectRatio: false, plugins: { legend: { display: false } },
+          scales: { y: { beginAtZero: true, ticks: { precision: 0 }, title: { display: true, text: "Projects with open bugs" } } } }
+      });
+    }
+
+    function renderTimeline(projs) {
+      var dated = projs.filter(function (p) { return p.startDate || p.targetGoLiveDate || p.actualGoLiveDate; });
+      var today = new Date().toISOString().slice(0, 10);
+      dated.sort(function (a, b) {
+        return (a.targetGoLiveDate || "9999") < (b.targetGoLiveDate || "9999") ? -1 : 1;
+      });
+      var tbody = document.querySelector("#timelineTable tbody");
+      tbody.innerHTML = dated.map(function (p) {
+        var status, cls;
+        if (p.actualGoLiveDate) { status = "Live"; cls = "green"; }
+        else if (p.targetGoLiveDate && p.targetGoLiveDate < today) { status = "Overdue"; cls = "red"; }
+        else if (p.targetGoLiveDate) { status = "On track"; cls = "blue"; }
+        else { status = "In progress"; cls = ""; }
+        var href = "../../project-portal/webapp/index.html#/Projects(ID='" + encodeURIComponent(p.ID) + "',IsActiveEntity=true)";
+        return "<tr>" +
+          '<td><a href="' + esc(href) + '">' + esc(p.ID) + "</a><br><span style=\"color:var(--muted);font-size:11px\">" + esc(p.name || "") + "</span></td>" +
+          "<td>" + esc((p.itOwner && p.itOwner.name) || "—") + "</td>" +
+          "<td>" + esc(fmtDate(p.startDate)) + "</td>" +
+          "<td>" + esc(fmtDate(p.targetGoLiveDate)) + "</td>" +
+          "<td>" + esc(fmtDate(p.actualGoLiveDate)) + "</td>" +
+          '<td><span class="badge ' + cls + '">' + esc(status) + "</span></td>" +
+          "</tr>";
+      }).join("");
+      document.getElementById("timelineEmpty").style.display = dated.length ? "none" : "";
+    }
+
+    // ---- Data quality nudges ------------------------------------------------------
+    var DQ_SECTIONS = [
+      { key: "generalPct",   label: "General Info" },
+      { key: "businessPct",  label: "Business Input" },
+      { key: "readinessPct", label: "E2E Readiness" },
+      { key: "solutionPct",  label: "Solution Details" },
+      { key: "goLivePct",    label: "Go-Live Checklist" },
+      { key: "testingPct",   label: "Testing / QA" }
+    ];
+
+    function renderDataQuality(projs) {
+      var rows = projs.map(function (p) {
+        var c = DATA.completeness[p.ID] || {};
+        var gaps = [];
+        DQ_SECTIONS.forEach(function (s) {
+          var v = numOrNull(c[s.key]);
+          if (v === null || v === 0) gaps.push({ label: s.label + ": empty", cls: "red" });
+          else if (v < 100) gaps.push({ label: s.label + ": " + Math.round(v) + "%", cls: "amber" });
+        });
+        if (!p.startDate && !p.targetGoLiveDate && !p.actualGoLiveDate) {
+          gaps.push({ label: "No project dates", cls: "red" });
+        }
+        return { p: p, overall: numOrNull(c.overallPct), gaps: gaps };
+      }).filter(function (r) { return r.gaps.length; });
+
+      rows.sort(function (a, b) { return (a.overall === null ? -1 : a.overall) - (b.overall === null ? -1 : b.overall); });
+
+      var complete = projs.length - rows.length;
+      document.getElementById("dqSummary").textContent =
+        complete + " of " + projs.length + " projects in view have complete data. " +
+        "Fixing the gaps below improves readiness scores and dashboard accuracy.";
+
+      document.querySelector("#dqTable tbody").innerHTML = rows.map(function (r) {
+        var href = "../../project-portal/webapp/index.html#/Projects(ID='" +
+                   encodeURIComponent(r.p.ID) + "',IsActiveEntity=true)";
+        var badges = r.gaps.map(function (g) {
+          return '<span class="badge ' + g.cls + '" style="margin:2px 4px 2px 0">' + esc(g.label) + "</span>";
+        }).join(" ");
+        return "<tr>" +
+          '<td><a href="' + esc(href) + '">' + esc(r.p.ID) + "</a><br><span style=\"color:var(--muted);font-size:11px\">" + esc(r.p.name || "") + "</span></td>" +
+          "<td>" + esc((r.p.itOwner && r.p.itOwner.name) || "—") + "</td>" +
+          "<td>" + meterHtml(r.overall) + "</td>" +
+          "<td>" + badges + "</td>" +
+          "</tr>";
+      }).join("");
+      document.getElementById("dqEmpty").style.display = rows.length ? "none" : "";
+    }
+
+    // ---- Recent changes (audit feed, Manager only) ----------------------------------
+    function renderChanges() {
+      if (DATA.changes === null) return;   // 403 for employees → section stays hidden
+      document.getElementById("changesSection").style.display = "";
+      var rows = DATA.changes;
+      document.querySelector("#changesTable tbody").innerHTML = rows.map(function (c) {
+        var when = c.createdAt ? new Date(c.createdAt).toLocaleString() : "—";
+        var section = String(c.entity || "").split(".").pop()
+          .replace(/([a-z])([A-Z])/g, "$1 $2");
+        return "<tr>" +
+          "<td style=\"white-space:nowrap\">" + esc(when) + "</td>" +
+          "<td>" + esc(c.createdBy || "—") + "</td>" +
+          "<td>" + esc(c.objectID || "—") + "</td>" +
+          "<td>" + esc(section) + "</td>" +
+          "<td>" + esc(c.attribute || "—") + "</td>" +
+          "<td>" + esc(c.valueChangedFrom === null || c.valueChangedFrom === "" ? "—" : c.valueChangedFrom) + "</td>" +
+          "<td>" + esc(c.valueChangedTo === null || c.valueChangedTo === "" ? "—" : c.valueChangedTo) + "</td>" +
+          "</tr>";
+      }).join("");
+      document.getElementById("changesEmpty").style.display = rows.length ? "none" : "";
+    }
+
+    // ---- All projects table -----------------------------------------------------
+    function meterHtml(v) {
+      if (v === null || isNaN(v)) return '<span class="badge">—</span>';
+      var pct = Math.max(0, Math.min(100, v));
+      return '<div class="meter"><span style="width:' + pct + '%;background:' + bandColor(pct) + ';opacity:0.85"></span>' +
+             '<div class="txt">' + Math.round(pct) + '%</div></div>';
+    }
+    function riskBadge(r) {
+      var cls = /high|critical/i.test(r) ? "red" : /medium/i.test(r) ? "amber" : /low/i.test(r) ? "green" : "";
+      return '<span class="badge ' + cls + '">' + esc(r) + '</span>';
+    }
+
+    function drawTable(projs) {
+      var rows = projs.map(function (p) {
+        return {
+          ID: p.ID, name: p.name || "",
+          owner: (p.itOwner && p.itOwner.name) || "—",
+          phase: (p.phase && p.phase.name) || "—",
+          risk: (p.riskLevel && p.riskLevel.name) || "—",
+          target: p.targetGoLiveDate || null,
+          actual: p.actualGoLiveDate || null,
+          e2e: p.readiness ? numOrNull(p.readiness.overallReadiness) : null,
+          golive: p.goLive ? numOrNull(p.goLive.readinessPct) : null,
+          util: numOrNull(p.utilization)
+        };
+      });
+      var today = new Date().toISOString().slice(0, 10);
+      var sorted = rows.slice().sort(function (a, b) {
+        var x = a[sortKey], y = b[sortKey];
+        if (x === null) return 1;
+        if (y === null) return -1;
+        if (typeof x === "string") { x = x.toLowerCase(); y = (y || "").toLowerCase(); }
+        if (x < y) return sortAsc ? -1 : 1;
+        if (x > y) return sortAsc ? 1 : -1;
+        return 0;
+      });
+      var html = sorted.map(function (r) {
+        var href = "../../project-portal/webapp/index.html#/Projects(ID='" +
+                   encodeURIComponent(r.ID) + "',IsActiveEntity=true)";
+        var targetCell = r.target
+          ? (!r.actual && r.target < today
+              ? '<span class="badge red">' + esc(r.target) + " ⚠</span>"
+              : esc(r.target))
+          : "—";
+        return "<tr>" +
+          '<td><a href="' + esc(href) + '">' + esc(r.ID) + "</a></td>" +
+          "<td>" + esc(r.name) + "</td>" +
+          "<td>" + esc(r.owner) + "</td>" +
+          "<td>" + esc(r.phase) + "</td>" +
+          "<td>" + riskBadge(r.risk) + "</td>" +
+          "<td>" + targetCell + "</td>" +
+          "<td>" + meterHtml(r.e2e) + "</td>" +
+          "<td>" + meterHtml(r.golive) + "</td>" +
+          "<td>" + meterHtml(r.util) + "</td>" +
+          "</tr>";
+      }).join("");
+      document.querySelector("#projTable tbody").innerHTML = html;
+      document.querySelectorAll("#projTable th").forEach(function (th) {
+        th.querySelector(".arrow").textContent = th.dataset.k === sortKey ? (sortAsc ? "▲" : "▼") : "";
+      });
+    }
+    document.querySelectorAll("#projTable th").forEach(function (th) {
+      th.onclick = function () {
+        var k = th.dataset.k;
+        if (sortKey === k) { sortAsc = !sortAsc; } else { sortKey = k; sortAsc = true; }
+        drawTable(filteredProjects());
+      };
+    });
+  </script>
+  <script src="/shared/nav.js"></script>
+  <script src="/shared/searchselect.js"></script>
+</body>
+</html>

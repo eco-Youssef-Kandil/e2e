@@ -92,6 +92,12 @@ entity Projects : managed {
       riskLevel     : Association to lookup.RiskLevels;
       notes         : String(1000);
 
+      // Timeline — drives the executive dashboard timeline view & overdue flags.
+      // Additive fields (nullable); ownership still keys off itOwner (see below).
+      startDate        : Date;
+      targetGoLiveDate : Date;
+      actualGoLiveDate : Date;
+
       // Usage metrics — entered manually now, fed by an integration later.
       numberOfUsers    : Integer;
       numberOfRequests : Integer;
@@ -206,6 +212,53 @@ entity Testing : managed {
       bugPriority : Association to lookup.BugPriorities;
       bugStatus   : Association to lookup.BugStatuses;
       testNotes   : String(2000);
+}
+
+// ---------------------------------------------------------------------------
+// Portfolio snapshots — one row per day, captured automatically by the service
+// so the executive dashboard can chart trends over time. Values are portfolio
+// averages/counts at capture time (percent values on the 0..100 scale).
+// ---------------------------------------------------------------------------
+entity PortfolioSnapshots {
+  key snapshotDate     : Date;
+      projectCount     : Integer;
+      avgE2eReadiness  : Decimal(5,2);   // avg overallReadiness × 100
+      avgGoLive        : Decimal(5,2);   // avg goLive.readinessPct × 100
+      highRiskCount    : Integer;        // riskLevel High or Critical
+      openRiskCount    : Integer;        // Risks rows not Closed/Resolved
+}
+
+// ---------------------------------------------------------------------------
+// Handover — the plan to transfer a project from delivery to support.
+// One plan per project (created on demand from a standard template) with a
+// journey of phased tasks: Preparation → Documentation → Knowledge Transfer
+// → Access & Setup → Hypercare → Sign-off.
+// ---------------------------------------------------------------------------
+entity HandoverPlans : managed {
+  key project    : Association to Projects;
+      status     : Association to lookup.StageStatuses;   // overall plan status
+      targetDate : Date;                                  // planned handover date
+      actualDate : Date;                                  // when sign-off happened
+      fromOwner  : Association to lookup.Employees;       // handing over (delivery)
+      toOwners   : Composition of many HandoverReceivers on toOwners.plan = $self;
+      notes      : String(1000);
+      tasks      : Composition of many HandoverTasks on tasks.plan = $self;
+}
+
+entity HandoverReceivers : cuid {
+  plan     : Association to HandoverPlans;
+  employee : Association to lookup.Employees;
+}
+
+entity HandoverTasks : cuid, managed {
+      plan    : Association to HandoverPlans;
+      phase   : String(60);                               // journey phase name
+      title   : String(200);
+      owner   : Association to lookup.Employees;
+      dueDate : Date;
+      status  : Association to lookup.StageStatuses;
+      sort    : Integer default 0;
+      notes   : String(500);
 }
 
 // ---------------------------------------------------------------------------

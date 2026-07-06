@@ -1,0 +1,753 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NADEC E2E — Project Handover</title>
+
+  <style>
+    :root {
+      --nadec-blue: #0033A0;
+      --nadec-blue-dark: #002673;
+      --ink: #1d2d3e;
+      --muted: #5b6b7b;
+      --line: #d9e1e8;
+      --green: #2e7d32;
+      --amber: #e58c00;
+      --red: #c62828;
+      --gray: #9aa8b5;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0; min-height: 100%;
+      font-family: "72", "72full", Arial, Helvetica, sans-serif;
+      color: var(--ink);
+      background: linear-gradient(180deg, #eaf1fb 0%, #eef3f7 40%, #e7f0f7 100%);
+    }
+    #topBar {
+      position: fixed; top: 0; left: 0; right: 0; height: 48px; z-index: 1000;
+      display: flex; align-items: center; gap: 12px; padding: 0 16px;
+      background: linear-gradient(135deg, var(--nadec-blue), var(--nadec-blue-dark));
+      color: #fff; box-shadow: 0 2px 4px rgba(0,0,0,0.18); font-size: 13px;
+    }
+    #topBar .title { font-weight: 600; font-size: 15px; letter-spacing: 0.3px; white-space: nowrap; }
+    #topBar .spacer { flex: 1 1 auto; }
+
+    #content { padding: 66px 20px 40px; max-width: 1180px; margin: 0 auto; }
+
+    .card {
+      background: #fff; border: 1px solid var(--line); border-radius: 14px;
+      box-shadow: 0 4px 16px rgba(13,40,70,0.07);
+      padding: 18px 22px; margin-bottom: 18px;
+    }
+    .rowFlex { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; }
+    h1 { font-size: 20px; margin: 0; font-weight: 700; }
+    h1 small { display: block; font-size: 12px; color: var(--muted); font-weight: 400; margin-top: 2px; }
+    #projPicker {
+      min-width: 280px; max-width: 420px; padding: 9px 12px; font-size: 14px; font-weight: 600;
+      color: var(--ink); border: 2px solid var(--nadec-blue); border-radius: 10px; background: #fff;
+      cursor: pointer; margin-left: auto;
+    }
+
+    /* Plan header fields */
+    .fieldGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-top: 14px; }
+    .fld label { display: block; font-size: 11px; font-weight: 700; color: var(--muted);
+      text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 4px; }
+    .fld select, .fld input[type="date"], .fld input[type="text"] {
+      width: 100%; padding: 8px 10px; font-size: 13px; border: 1px solid var(--line);
+      border-radius: 8px; background: #fff; color: var(--ink); font-family: inherit;
+    }
+    .pboxRow { display: flex; gap: 20px; flex-wrap: wrap; margin-top: 16px; }
+    .pbox { flex: 1 1 260px; }
+    .pbox .plabel { font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 5px; }
+    .pmeter { position: relative; background: #e8edf3; border-radius: 999px; height: 20px; overflow: hidden; }
+    .pmeter > span { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 999px; transition: width 0.5s ease; }
+    .pmeter .ptxt { position: absolute; width: 100%; text-align: center; font-size: 12px; font-weight: 700; line-height: 20px; }
+
+    /* Phase stepper */
+    #stepper { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+    .step {
+      flex: 1 1 150px; min-width: 150px; border: 1px solid var(--line); border-radius: 12px;
+      padding: 10px 12px; background: #fbfdff; position: relative;
+    }
+    .step.current { border-color: var(--nadec-blue); box-shadow: 0 0 0 2px rgba(0,51,160,0.18); }
+    .step .num {
+      width: 26px; height: 26px; border-radius: 50%; color: #fff; font-size: 13px; font-weight: 700;
+      display: inline-flex; align-items: center; justify-content: center; margin-bottom: 6px;
+    }
+    .step h4 { margin: 0 0 3px; font-size: 12.5px; }
+    .step .cnt { font-size: 11px; color: var(--muted); }
+    .step .cur { position: absolute; top: 8px; right: 10px; font-size: 10px; font-weight: 700;
+      color: var(--nadec-blue); text-transform: uppercase; letter-spacing: 0.5px; }
+
+    /* Tables */
+    h2 { font-size: 15px; margin: 0 0 10px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.4px;
+      color: var(--muted); padding: 6px 8px; border-bottom: 2px solid var(--line); }
+    td { padding: 7px 8px; border-bottom: 1px solid #edf1f5; vertical-align: middle; }
+    td select, td input[type="date"] {
+      padding: 5px 7px; font-size: 12.5px; border: 1px solid var(--line); border-radius: 7px;
+      background: #fff; color: var(--ink); font-family: inherit; max-width: 170px;
+    }
+    .badge { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 11px; font-weight: 700; color: #fff; white-space: nowrap; }
+    .overdue { color: var(--red); font-weight: 700; font-size: 11px; }
+    .phaseHead td {
+      background: #f2f6fb; font-weight: 700; font-size: 12px; letter-spacing: 0.3px;
+      border-bottom: 1px solid var(--line); border-top: 1px solid var(--line);
+    }
+    .iconBtn {
+      border: none; background: none; cursor: pointer; font-size: 14px; color: var(--muted);
+      padding: 4px 6px; border-radius: 6px;
+    }
+    .iconBtn:hover { background: #fdecea; color: var(--red); }
+    .addBtn {
+      border: 1px dashed var(--nadec-blue); background: #f6f9ff; color: var(--nadec-blue);
+      font-size: 12px; font-weight: 700; padding: 5px 12px; border-radius: 8px; cursor: pointer;
+    }
+    .primary {
+      background: var(--nadec-blue); color: #fff; border: none; border-radius: 10px;
+      padding: 11px 22px; font-size: 14px; font-weight: 700; cursor: pointer; font-family: inherit;
+    }
+    .primary:hover { background: var(--nadec-blue-dark); }
+    #emptyState { text-align: center; padding: 46px 20px; }
+    #emptyState p { color: var(--muted); font-size: 14px; margin: 0 0 18px; }
+
+    #saveHint { font-size: 12px; color: var(--green); font-weight: 700; opacity: 0; transition: opacity 0.3s; margin-left: 10px; }
+
+    /* Inline editing */
+    .fld textarea, .notesRow textarea {
+      width: 100%; padding: 8px 10px; font-size: 13px; border: 1px solid var(--line);
+      border-radius: 8px; background: #fff; color: var(--ink); font-family: inherit;
+      resize: vertical; min-height: 44px;
+    }
+    .titleInput {
+      width: 100%; padding: 5px 7px; font-size: 13px; color: var(--ink); font-family: inherit;
+      border: 1px solid transparent; border-radius: 7px; background: transparent;
+    }
+    .titleInput:hover { border-color: var(--line); background: #fff; }
+    .titleInput:focus { border-color: var(--nadec-blue); background: #fff; outline: none; }
+    .rowBtns { white-space: nowrap; text-align: right; }
+    .noteBtn { position: relative; }
+    .noteBtn.hasNote::after {
+      content: ""; position: absolute; top: 3px; right: 2px; width: 7px; height: 7px;
+      border-radius: 50%; background: var(--amber);
+    }
+    .noteBtn:hover { background: #eef4ff; color: var(--nadec-blue); }
+    .notesRow td { background: #fbfdff; padding: 6px 10px 10px; }
+    .iconBtn.armed { background: var(--red); color: #fff; font-size: 11px; font-weight: 700; }
+    .addRow td { background: #f6f9ff; padding: 8px 10px; }
+    .addRow .titleInput { border-color: var(--line); background: #fff; }
+    .primary.small { padding: 6px 14px; font-size: 12.5px; border-radius: 8px; }
+    .planDelBtn {
+      margin-left: auto; border: 1px solid #e5b6b6; background: #fff; color: var(--red);
+      font-size: 12px; font-weight: 700; padding: 6px 12px; border-radius: 8px;
+      cursor: pointer; font-family: inherit;
+    }
+    .planDelBtn.armed { background: var(--red); border-color: var(--red); color: #fff; }
+    .completeBtn { background: var(--green); margin-left: 16px; align-self: center; }
+    .completeBtn:hover { background: #1b5e20; }
+    #loading, #error { margin-top: 100px; text-align: center; color: var(--muted); font-size: 15px; }
+    #error { color: var(--red); display: none; }
+
+    /* Receiver chips */
+    .receiverField { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 4px 0; }
+    .receiverChip { display: inline-flex; align-items: center; gap: 5px; background: #eaf1fb; color: var(--nadec-blue); font-size: 12px; font-weight: 600; padding: 4px 10px 4px 10px; border-radius: 999px; border: 1px solid #c5d8f0; }
+    .removeReceiver { background: none; border: none; cursor: pointer; color: var(--nadec-blue); font-size: 14px; line-height: 1; padding: 0 2px; opacity: 0.6; }
+    .removeReceiver:hover { opacity: 1; color: var(--red); }
+    .addReceiverSel { padding: 4px 10px; font-size: 12.5px; border: 1px dashed var(--nadec-blue); border-radius: 999px; background: #f6f9ff; color: var(--nadec-blue); font-family: inherit; cursor: pointer; }
+  </style>
+
+  <script>
+    (function () {
+      if (!sessionStorage.getItem("e2e-auth")) {
+        window.location.replace("../../project-portal/webapp/login.html");
+      }
+    })();
+  </script>
+</head>
+<body>
+  <div id="topBar">
+    <span class="title">Project Handover</span>
+    <div class="spacer"></div>
+    <span id="who"></span>
+  </div>
+
+  <div id="content" style="display:none">
+    <div class="card">
+      <div class="rowFlex">
+        <h1 id="pageTitle">Handover<small>Plan and track the transfer of a project from delivery to support</small></h1>
+        <select id="projPicker"></select>
+      </div>
+    </div>
+    <div id="planArea"></div>
+  </div>
+
+  <div id="loading">Loading handover plans…</div>
+  <div id="error"></div>
+
+  <script>
+    "use strict";
+
+    var AUTH = sessionStorage.getItem("e2e-auth");
+    document.getElementById("who").textContent =
+      (sessionStorage.getItem("e2e-user-name") || "") +
+      ((sessionStorage.getItem("e2e-user-role")) ? " · " + sessionStorage.getItem("e2e-user-role") : "");
+
+    function esc(s) {
+      return String(s === null || s === undefined ? "" : s)
+        .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+    }
+
+    var PHASES = ["Preparation", "Documentation", "Knowledge Transfer", "Access & Setup", "Hypercare", "Sign-off"];
+    var STATUS_COLORS = {
+      "Completed": "#2e7d32", "In Progress": "#e58c00", "Blocked": "#c62828",
+      "Partially Defined": "#f2b950", "Missing Input": "#9aa8b5",
+      "Not Started": "#9aa8b5", "Not Applicable": "#cfd8e3"
+    };
+    function colorOf(code) { return STATUS_COLORS[code] || "#9aa8b5"; }
+
+    // ---- OData helpers ---------------------------------------------------------
+    function odata(path, opts) {
+      opts = opts || {};
+      var headers = { Authorization: AUTH };
+      if (opts.body) { headers["Content-Type"] = "application/json"; }
+      return fetch("/governance/" + path, {
+        method: opts.method || "GET",
+        headers: headers,
+        body: opts.body ? JSON.stringify(opts.body) : undefined
+      }).then(function (r) {
+        if (r.status === 401) {
+          sessionStorage.removeItem("e2e-auth");
+          window.location.replace("../../project-portal/webapp/login.html");
+          throw new Error("Not authorized");
+        }
+        if (!r.ok) {
+          return r.text().then(function (t) {
+            var msg = "Request failed: " + r.status;
+            try { var j = JSON.parse(t); if (j.error && j.error.message) { msg = j.error.message; } } catch (e) {}
+            var err = new Error(msg);
+            err.status = r.status;
+            throw err;
+          });
+        }
+        if (r.status === 204) { return null; }
+        return r.json();
+      });
+    }
+
+    function showSaved() {
+      var el = document.getElementById("saveHint");
+      if (!el) { return; }
+      el.style.opacity = "1";
+      clearTimeout(showSaved._t);
+      showSaved._t = setTimeout(function () { el.style.opacity = "0"; }, 1500);
+    }
+    function showError(err) {
+      alert("Could not save: " + (err && err.message ? err.message : "unknown error"));
+    }
+
+    // ---- Data --------------------------------------------------------------------
+    var PROJECTS = [], EMPLOYEES = [], STATUSES = [], PLAN = null, TASKS = [];
+    var currentProject = null;
+
+    Promise.all([
+      odata("Projects?$select=ID,name&$filter=IsActiveEntity eq true&$orderby=ID&$top=5000"),
+      odata("Employees?$orderby=sort,name&$top=5000"),
+      odata("StageStatuses?$orderby=sort&$top=100"),
+      odata("HandoverPlans?$select=project_ID&$top=5000")
+    ]).then(function (res) {
+      PROJECTS = res[0].value || [];
+      EMPLOYEES = res[1].value || [];
+      STATUSES = res[2].value || [];
+      var withPlans = {};
+      (res[3].value || []).forEach(function (p) { withPlans[p.project_ID] = true; });
+      PROJECTS.forEach(function (p) { p.hasPlan = !!withPlans[p.ID]; });
+
+      document.getElementById("loading").style.display = "none";
+      document.getElementById("content").style.display = "";
+      buildPicker();
+
+      var want = new URLSearchParams(window.location.search).get("project");
+      var first = PROJECTS.find(function (p) { return p.ID === want; }) ||
+                  PROJECTS.find(function (p) { return p.hasPlan; }) || PROJECTS[0];
+      if (first) { selectProject(first.ID); }
+    }).catch(function (err) {
+      document.getElementById("loading").style.display = "none";
+      var e = document.getElementById("error");
+      e.style.display = "";
+      e.textContent = "Could not load handover data: " + (err && err.message ? err.message : "unknown error");
+    });
+
+    function buildPicker() {
+      var sel = document.getElementById("projPicker");
+      sel.innerHTML = PROJECTS.map(function (p) {
+        return '<option value="' + esc(p.ID) + '">' +
+          esc(p.ID + " — " + (p.name || "")) + (p.hasPlan ? " ✓" : "") + "</option>";
+      }).join("");
+      sel.onchange = function () { selectProject(sel.value); };
+    }
+
+    function selectProject(id) {
+      currentProject = id;
+      document.getElementById("projPicker").value = id;
+      try {
+        var url = new URL(window.location.href);
+        url.searchParams.set("project", id);
+        window.history.replaceState(null, "", url.toString());
+      } catch (e) {}
+      loadPlan();
+    }
+
+    // OData key predicate for the current plan — single quotes in the ID must be
+    // doubled for the OData string literal, then the whole literal URI-encoded.
+    function planKey() {
+      return "HandoverPlans(project_ID='" +
+        encodeURIComponent(String(currentProject).replace(/'/g, "''")) + "')";
+    }
+
+    function loadPlan() {
+      var area = document.getElementById("planArea");
+      area.innerHTML = '<div class="card" style="text-align:center;color:var(--muted)">Loading plan…</div>';
+      odata(planKey() + "?$expand=tasks($orderby=sort,createdAt),toOwners")
+        .then(function (plan) {
+          PLAN = plan;
+          TASKS = plan.tasks || [];
+          renderPlan();
+        })
+        .catch(function (err) {
+          if (err && err.status === 404) { PLAN = null; TASKS = []; renderNoPlan(); }
+          else {
+            area.innerHTML = '<div class="card" style="color:var(--red)">Could not load the plan: ' +
+              esc(err && err.message ? err.message : "unknown error") + "</div>";
+          }
+        });
+    }
+
+    // ---- Rendering -----------------------------------------------------------------
+    function renderNoPlan() {
+      var p = PROJECTS.find(function (x) { return x.ID === currentProject; }) || {};
+      document.getElementById("planArea").innerHTML =
+        '<div class="card"><div id="emptyState">' +
+        "<h2>No handover plan yet for " + esc(p.ID + " — " + (p.name || "")) + "</h2>" +
+        "<p>Create one from the standard handover journey: Preparation → Documentation → " +
+        "Knowledge Transfer → Access &amp; Setup → Hypercare → Sign-off (15 template tasks).</p>" +
+        '<button class="primary" id="createPlanBtn">Create handover plan</button>' +
+        "</div></div>";
+      document.getElementById("createPlanBtn").onclick = function () {
+        this.disabled = true;
+        odata("createHandoverPlan", { method: "POST", body: { projectID: currentProject } })
+          .then(function () {
+            var proj = PROJECTS.find(function (x) { return x.ID === currentProject; });
+            if (proj) { proj.hasPlan = true; }
+            buildPicker();
+            document.getElementById("projPicker").value = currentProject;
+            loadPlan();
+          })
+          .catch(function (err) { showError(err); loadPlan(); });
+      };
+    }
+
+    function employeeOptions(sel) {
+      return '<option value="">—</option>' + EMPLOYEES.map(function (e) {
+        return '<option value="' + esc(e.code) + '"' + (e.code === sel ? " selected" : "") + ">" +
+          esc(e.name || e.code) + "</option>";
+      }).join("");
+    }
+    function statusOptions(sel) {
+      return STATUSES.map(function (s) {
+        return '<option value="' + esc(s.code) + '"' + (s.code === sel ? " selected" : "") + ">" +
+          esc(s.name || s.code) + "</option>";
+      }).join("");
+    }
+
+    function taskDone(t) { return t.status_code === "Completed" || t.status_code === "Not Applicable"; }
+
+    function receiverChipsHtml() {
+      var existing = (PLAN.toOwners || []).map(function (r) { return r.employee_code; });
+      var chips = (PLAN.toOwners || []).map(function (r) {
+        var emp = EMPLOYEES.find(function (e) { return e.code === r.employee_code; });
+        var name = emp ? (emp.name || emp.code) : (r.employee_code || "");
+        return '<span class="receiverChip">' + esc(name) +
+          '<button type="button" class="removeReceiver" data-receiver-id="' + esc(r.ID) + '">\u00d7</button></span>';
+      }).join("");
+      var available = EMPLOYEES.filter(function (e) { return existing.indexOf(e.code) < 0; });
+      var addSel = '<select class="addReceiverSel" data-nosearch>' +
+        '<option value="">' + (existing.length ? '\u002b Add receiver\u2026' : '\u002b Add receiver\u2026') + '</option>' +
+        available.map(function (e) {
+          return '<option value="' + esc(e.code) + '">' + esc(e.name || e.code) + '</option>';
+        }).join("") + '</select>';
+      return '<div class="fld"><label>Receiving (support)</label>' +
+        '<div class="receiverField">' + chips + addSel + '</div></div>';
+    }
+
+    // Unknown/custom phases sort after the standard journey (never before it).
+    function phaseIdx(ph) {
+      var i = PHASES.indexOf(ph);
+      return i < 0 ? PHASES.length : i;
+    }
+    // Standard phases plus any custom phase values found on tasks, in order.
+    function allPhases() {
+      var extra = [];
+      TASKS.forEach(function (t) {
+        var ph = t.phase || "(No phase)";
+        if (PHASES.indexOf(ph) < 0 && extra.indexOf(ph) < 0) { extra.push(ph); }
+      });
+      return PHASES.concat(extra.sort());
+    }
+
+    function renderPlan() {
+      document.getElementById("planArea").innerHTML =
+        '<div id="summaryArea"></div><div id="tableArea"></div>';
+      renderSummary();
+      renderTable();
+    }
+
+    function renderSummary() {
+      var p = PROJECTS.find(function (x) { return x.ID === currentProject; }) || {};
+      var today = new Date().toISOString().slice(0, 10);
+
+      var countable = TASKS.filter(function (t) { return t.status_code !== "Not Applicable"; });
+      var done = countable.filter(function (t) { return t.status_code === "Completed"; }).length;
+      var pct = countable.length ? Math.round(done / countable.length * 100) : 0;
+
+      // Phase aggregation + current phase (first not fully done)
+      var phaseAgg = PHASES.map(function (ph) {
+        var ts = TASKS.filter(function (t) { return t.phase === ph; });
+        var d = ts.filter(taskDone).length;
+        var started = ts.some(function (t) { return t.status_code !== "Not Started"; });
+        var blocked = ts.some(function (t) { return t.status_code === "Blocked"; });
+        return { phase: ph, total: ts.length, done: d,
+          state: ts.length && d === ts.length ? "done" : blocked ? "blocked" : started ? "active" : "todo" };
+      });
+      var curIdx = phaseAgg.findIndex(function (a) { return a.total > 0 && a.done < a.total; });
+
+      var openTasks = TASKS.filter(function (t) { return !taskDone(t); })
+        .slice().sort(function (a, b) {
+          var pa = phaseIdx(a.phase), pb = phaseIdx(b.phase);
+          if (pa !== pb) { return pa - pb; }
+          if ((a.sort || 0) !== (b.sort || 0)) { return (a.sort || 0) - (b.sort || 0); }
+          var da = a.dueDate || "9999", db = b.dueDate || "9999";
+          return da < db ? -1 : da > db ? 1 : 0;
+        });
+
+      var isManager = sessionStorage.getItem("e2e-user-role") === "Manager";
+      var canComplete = pct === 100 && countable.length > 0 && PLAN.status_code !== "Completed";
+
+      var html =
+        // ---- Plan header ----
+        '<div class="card">' +
+        '<div class="rowFlex"><h2 style="margin:0">Handover plan — ' + esc(p.ID + " — " + (p.name || "")) + "</h2>" +
+        '<span id="saveHint">Saved ✓</span>' +
+        (isManager ? '<button class="planDelBtn" id="delPlanBtn" title="Delete this handover plan and all its tasks">Delete plan</button>' : "") +
+        "</div>" +
+        '<div class="fieldGrid">' +
+        fld("Plan status", '<select data-plan="status_code">' + statusOptions(PLAN.status_code) + "</select>") +
+        fld("Target handover date", '<input type="date" data-plan="targetDate" value="' + esc(PLAN.targetDate || "") + '">') +
+        fld("Actual handover date", '<input type="date" data-plan="actualDate" value="' + esc(PLAN.actualDate || "") + '">') +
+        fld("Handing over (delivery)", '<select data-plan="fromOwner_code">' + employeeOptions(PLAN.fromOwner_code) + "</select>") +
+        receiverChipsHtml() +
+        '<div class="fld" style="grid-column:1/-1"><label>Plan notes</label>' +
+        '<textarea data-plan="notes" maxlength="1000" placeholder="Overall notes for this handover…">' + esc(PLAN.notes || "") + "</textarea></div>" +
+        "</div>" +
+        '<div class="pboxRow"><div class="pbox">' +
+        '<div class="plabel">Handover progress (' + done + " of " + countable.length + " tasks)</div>" +
+        '<div class="pmeter"><span style="width:' + pct + "%;background:" +
+        (pct >= 80 ? "#2e7d32" : pct >= 40 ? "#e58c00" : "#c62828") + '"></span>' +
+        '<div class="ptxt">' + pct + "%</div></div></div>" +
+        (canComplete ? '<button class="primary completeBtn" id="markCompleteBtn">✓ Mark handover complete</button>' : "") +
+        "</div>" +
+        "</div>" +
+
+        // ---- Journey stepper ----
+        '<div class="card"><h2>Handover journey</h2><div id="stepper">' +
+        phaseAgg.map(function (a, i) {
+          var color = a.state === "done" ? "#2e7d32" : a.state === "blocked" ? "#c62828" :
+                      a.state === "active" ? "#e58c00" : "#9aa8b5";
+          return '<div class="step' + (i === curIdx ? " current" : "") + '">' +
+            (i === curIdx ? '<span class="cur">Current</span>' : "") +
+            '<span class="num" style="background:' + color + '">' + (i + 1) + "</span>" +
+            "<h4>" + esc(a.phase) + "</h4>" +
+            '<div class="cnt">' + a.done + " / " + a.total + " tasks done</div></div>";
+        }).join("") +
+        "</div></div>" +
+
+        // ---- Current tasks ----
+        '<div class="card"><h2>Current tasks (' + openTasks.length + " open)</h2>" +
+        (openTasks.length
+          ? '<table><thead><tr><th>Task</th><th>Phase</th><th>Owner</th><th>Due date</th><th>Status</th></tr></thead><tbody>' +
+            openTasks.map(function (t) {
+              var over = t.dueDate && t.dueDate < today;
+              return "<tr><td>" + esc(t.title) + "</td><td>" + esc(t.phase) + "</td>" +
+                "<td>" + esc((EMPLOYEES.find(function (e) { return e.code === t.owner_code; }) || {}).name || "—") + "</td>" +
+                "<td>" + esc(t.dueDate || "—") + (over ? ' <span class="overdue">overdue</span>' : "") + "</td>" +
+                '<td><span class="badge" style="background:' + colorOf(t.status_code) + '">' + esc(t.status_code || "Not Started") + "</span></td></tr>";
+            }).join("") + "</tbody></table>"
+          : '<p style="color:var(--muted);font-size:13px;margin:0">All tasks are done — this handover is complete.</p>') +
+        "</div>";
+
+      var area = document.getElementById("summaryArea");
+      area.innerHTML = html;
+      wirePlanHandlers(area);
+    }
+
+    function renderTable() {
+      var html =
+        '<div class="card"><h2>Full plan</h2>' +
+        '<table><thead><tr><th style="width:34%">Task</th><th>Owner</th><th>Due date</th><th>Status</th><th></th></tr></thead><tbody>' +
+        allPhases().map(function (ph, pi) {
+          var ts = TASKS.filter(function (t) { return (t.phase || "(No phase)") === ph; });
+          if (PHASES.indexOf(ph) < 0 && ts.length === 0) { return ""; }
+          return '<tr class="phaseHead"><td colspan="4">' + (pi + 1) + ". " + esc(ph) + "</td>" +
+            '<td style="text-align:right"><button class="addBtn" data-add="' + esc(ph) + '">+ Task</button></td></tr>' +
+            ts.map(function (t) {
+              return '<tr data-task="' + esc(t.ID) + '">' +
+                '<td><input type="text" class="titleInput" data-fld="title" maxlength="200" value="' + esc(t.title) + '"></td>' +
+                '<td><select data-fld="owner_code">' + employeeOptions(t.owner_code) + "</select></td>" +
+                '<td><input type="date" data-fld="dueDate" value="' + esc(t.dueDate || "") + '"></td>' +
+                '<td><select data-fld="status_code">' + statusOptions(t.status_code) + "</select></td>" +
+                '<td class="rowBtns">' +
+                '<button class="iconBtn noteBtn' + (t.notes ? " hasNote" : "") + '" data-notes="' + esc(t.ID) + '" title="Task notes">✎</button>' +
+                '<button class="iconBtn" data-del="' + esc(t.ID) + '" title="Delete task">✕</button></td></tr>' +
+                '<tr class="notesRow" data-task="' + esc(t.ID) + '" data-notesrow="' + esc(t.ID) + '" style="display:none">' +
+                '<td colspan="5"><textarea data-fld="notes" maxlength="500" placeholder="Notes for this task…">' + esc(t.notes || "") + "</textarea></td></tr>";
+            }).join("");
+        }).join("") +
+        "</tbody></table></div>";
+
+      var area = document.getElementById("tableArea");
+      area.innerHTML = html;
+      wireTaskHandlers(area);
+    }
+
+    function fld(label, control) {
+      return '<div class="fld"><label>' + esc(label) + "</label>" + control + "</div>";
+    }
+
+    // ---- Editing ---------------------------------------------------------------------
+    // Two-step confirmation: first click arms the button for 3 s, second click fires.
+    function armButton(btn, armedLabel, fn) {
+      if (btn.getAttribute("data-armed")) {
+        btn.removeAttribute("data-armed");
+        btn.classList.remove("armed");
+        btn.textContent = btn.getAttribute("data-orig") || btn.textContent;
+        btn.removeAttribute("data-orig");
+        fn();
+        return;
+      }
+      btn.setAttribute("data-armed", "1");
+      btn.setAttribute("data-orig", btn.textContent);
+      btn.classList.add("armed");
+      btn.textContent = armedLabel;
+      setTimeout(function () {
+        if (btn.getAttribute("data-armed")) {
+          btn.removeAttribute("data-armed");
+          btn.classList.remove("armed");
+          btn.textContent = btn.getAttribute("data-orig") || btn.textContent;
+          btn.removeAttribute("data-orig");
+        }
+      }, 3000);
+    }
+
+    function wirePlanHandlers(area) {
+      // Plan header fields
+      Array.prototype.slice.call(area.querySelectorAll("[data-plan]")).forEach(function (el) {
+        el.onchange = function () {
+          var fldName = el.getAttribute("data-plan");
+          var val = el.value === "" ? null : el.value;
+          var body = {};
+          body[fldName] = val;
+          odata(planKey(), { method: "PATCH", body: body })
+            .then(function () { PLAN[fldName] = val; showSaved(); })
+            .catch(showError);
+        };
+      });
+      // Receiver — add
+      Array.prototype.slice.call(area.querySelectorAll(".addReceiverSel")).forEach(function (sel) {
+        sel.onchange = function () {
+          var code = sel.value;
+          if (!code) { return; }
+          sel.value = "";
+          sel.disabled = true;
+          odata("HandoverReceivers", { method: "POST", body: { plan_project_ID: currentProject, employee_code: code } })
+            .then(function (created) {
+              if (!PLAN.toOwners) { PLAN.toOwners = []; }
+              PLAN.toOwners.push(created);
+              renderSummary();
+              showSaved();
+            })
+            .catch(function (err) { sel.disabled = false; showError(err); });
+        };
+      });
+      // Receiver — remove
+      Array.prototype.slice.call(area.querySelectorAll(".removeReceiver")).forEach(function (btn) {
+        btn.onclick = function () {
+          var id = btn.getAttribute("data-receiver-id");
+          btn.disabled = true;
+          odata("HandoverReceivers(" + id + ")", { method: "DELETE" })
+            .then(function () {
+              PLAN.toOwners = (PLAN.toOwners || []).filter(function (r) { return r.ID !== id; });
+              renderSummary();
+              showSaved();
+            })
+            .catch(function (err) { btn.disabled = false; showError(err); });
+        };
+      });
+      // Manager-only: delete the whole plan (two-step confirm)
+      var delBtn = area.querySelector("#delPlanBtn");
+      if (delBtn) {
+        delBtn.onclick = function () {
+          armButton(delBtn, "Click again to delete plan + tasks", function () {
+            delBtn.disabled = true;
+            odata(planKey(), { method: "DELETE" })
+              .then(function () {
+                PLAN = null; TASKS = [];
+                var proj = PROJECTS.find(function (x) { return x.ID === currentProject; });
+                if (proj) { proj.hasPlan = false; }
+                buildPicker();
+                document.getElementById("projPicker").value = currentProject;
+                renderNoPlan();
+              })
+              .catch(function (err) { delBtn.disabled = false; showError(err); });
+          });
+        };
+      }
+      // Mark handover complete (shown when all tasks are done)
+      var doneBtn = area.querySelector("#markCompleteBtn");
+      if (doneBtn) {
+        doneBtn.onclick = function () {
+          doneBtn.disabled = true;
+          var today = new Date().toISOString().slice(0, 10);
+          var body = { status_code: "Completed" };
+          if (!PLAN.actualDate) { body.actualDate = today; }
+          odata(planKey(), { method: "PATCH", body: body })
+            .then(function () {
+              PLAN.status_code = "Completed";
+              if (body.actualDate) { PLAN.actualDate = body.actualDate; }
+              renderSummary();
+              showSaved();
+            })
+            .catch(function (err) { doneBtn.disabled = false; showError(err); });
+        };
+      }
+    }
+
+    function wireTaskHandlers(area) {
+      // Task fields — only the summary re-renders on change, so the full-plan
+      // table keeps its DOM (and the user's focus) intact.
+      Array.prototype.slice.call(area.querySelectorAll("tr[data-task] [data-fld]")).forEach(function (el) {
+        el.onchange = function () {
+          var tr = el.closest("tr");
+          var id = tr.getAttribute("data-task");
+          var fldName = el.getAttribute("data-fld");
+          var t = TASKS.find(function (x) { return x.ID === id; });
+          var val = el.value === "" ? null : el.value;
+          if (fldName === "title") {
+            val = (el.value || "").trim();
+            if (!val) {          // a task must keep a title — revert
+              el.value = t ? t.title : "";
+              return;
+            }
+            el.value = val;
+          }
+          var body = {};
+          body[fldName] = val;
+          el.disabled = true;
+          odata("HandoverTasks(" + id + ")", { method: "PATCH", body: body })
+            .then(function () {
+              if (t) { t[fldName] = val; }
+              if (fldName === "notes") {
+                var noteBtn = area.querySelector('[data-notes="' + id + '"]');
+                if (noteBtn) { noteBtn.classList.toggle("hasNote", !!val); }
+              }
+              renderSummary();   // refresh progress, stepper, current tasks
+              showSaved();
+            })
+            .catch(function (err) {
+              if (t && fldName === "title") { el.value = t.title; }
+              showError(err);
+            })
+            .then(function () { el.disabled = false; });
+        };
+      });
+      // Toggle the notes row of a task
+      Array.prototype.slice.call(area.querySelectorAll("[data-notes]")).forEach(function (btn) {
+        btn.onclick = function () {
+          var row = area.querySelector('tr[data-notesrow="' + btn.getAttribute("data-notes") + '"]');
+          if (!row) { return; }
+          var show = row.style.display === "none";
+          row.style.display = show ? "" : "none";
+          if (show) { var ta = row.querySelector("textarea"); if (ta) { ta.focus(); } }
+        };
+      });
+      // Delete task (two-step confirm on the ✕ itself)
+      Array.prototype.slice.call(area.querySelectorAll("[data-del]")).forEach(function (btn) {
+        btn.onclick = function () {
+          var id = btn.getAttribute("data-del");
+          armButton(btn, "Confirm?", function () {
+            odata("HandoverTasks(" + id + ")", { method: "DELETE" })
+              .then(function () {
+                TASKS = TASKS.filter(function (x) { return x.ID !== id; });
+                renderSummary();
+                renderTable();
+                showSaved();
+              })
+              .catch(showError);
+          });
+        };
+      });
+      // Add task — inline editor row under the phase header
+      Array.prototype.slice.call(area.querySelectorAll("[data-add]")).forEach(function (btn) {
+        btn.onclick = function () {
+          var phase = btn.getAttribute("data-add");
+          var headRow = btn.closest("tr");
+          var next = headRow.nextElementSibling;
+          if (next && next.classList.contains("addRow")) {
+            var inp = next.querySelector("input"); if (inp) { inp.focus(); }
+            return;
+          }
+          var tr = document.createElement("tr");
+          tr.className = "addRow";
+          tr.innerHTML =
+            '<td colspan="3"><input type="text" class="titleInput" maxlength="200" placeholder="New task for ' + esc(phase) + '…"></td>' +
+            '<td colspan="2" style="text-align:right;white-space:nowrap">' +
+            '<button class="primary small">Add</button> ' +
+            '<button class="addBtn">Cancel</button></td>';
+          headRow.parentNode.insertBefore(tr, headRow.nextSibling);
+          var input = tr.querySelector("input");
+          var addBtn2 = tr.querySelector(".primary");
+          var cancelBtn = tr.querySelector(".addBtn");
+          input.focus();
+          function doAdd() {
+            var title = (input.value || "").trim();
+            if (!title) { input.focus(); return; }
+            addBtn2.disabled = true;
+            var maxSort = TASKS.reduce(function (m, t) { return Math.max(m, t.sort || 0); }, 0);
+            odata("HandoverTasks", { method: "POST", body: {
+              plan_project_ID: currentProject,
+              phase: phase, title: title.slice(0, 200),
+              status_code: "Not Started", sort: maxSort + 10
+            }})
+              .then(function (created) {
+                TASKS.push(created);
+                renderSummary();
+                renderTable();
+                showSaved();
+              })
+              .catch(function (err) { addBtn2.disabled = false; showError(err); });
+          }
+          addBtn2.onclick = doAdd;
+          cancelBtn.onclick = function () { tr.remove(); };
+          input.onkeydown = function (e) {
+            if (e.key === "Enter") { e.preventDefault(); doAdd(); }
+            if (e.key === "Escape") { tr.remove(); }
+          };
+        };
+      });
+    }
+  </script>
+  <script src="/shared/nav.js"></script>
+  <script src="/shared/searchselect.js"></script>
+</body>
+</html>
