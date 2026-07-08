@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NADEC E2E — Project Journey</title>
+
+  <style>
+    :root {
+      --nadec-blue: #0033A0;
+      --nadec-blue-dark: #002673;
+      --ink: #1d2d3e;
+      --muted: #5b6b7b;
+      --line: #d9e1e8;
+      --bg: #eef3f7;
+      --green: #2e7d32;
+      --amber: #e58c00;
+      --red: #c62828;
+      --gray: #9aa8b5;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0; min-height: 100%;
+      font-family: "72", "72full", Arial, Helvetica, sans-serif;
+      color: var(--ink);
+      background: linear-gradient(180deg, #eaf1fb 0%, #eef3f7 40%, #e7f0f7 100%);
+    }
+    #topBar {
+      position: fixed; top: 0; left: 0; right: 0; height: 48px; z-index: 1000;
+      display: flex; align-items: center; gap: 12px; padding: 0 16px;
+      background: linear-gradient(135deg, var(--nadec-blue), var(--nadec-blue-dark));
+      color: #fff; box-shadow: 0 2px 4px rgba(0,0,0,0.18); font-size: 13px;
+    }
+    #topBar .ghost {
+      padding: 5px 12px; font-size: 13px; font-weight: 600; color: #fff; cursor: pointer;
+      background: rgba(255,255,255,0.14); border: 1px solid rgba(255,255,255,0.5); border-radius: 6px;
+    }
+    #topBar .title { font-weight: 600; font-size: 15px; letter-spacing: 0.3px; white-space: nowrap; }
+    #topBar .spacer { flex: 1 1 auto; }
+    #topBar .who { opacity: 0.85; white-space: nowrap; }
+    #topBar .signout {
+      padding: 5px 14px; font-size: 13px; font-weight: 600; color: var(--nadec-blue); cursor: pointer;
+      background: #fff; border: 1px solid #fff; border-radius: 6px;
+    }
+
+    #content { padding: 66px 20px 40px; max-width: 1280px; margin: 0 auto; }
+
+    /* ---- Header / picker ---- */
+    #hero {
+      background: #fff; border: 1px solid var(--line); border-radius: 14px;
+      box-shadow: 0 4px 16px rgba(13,40,70,0.07);
+      padding: 18px 22px; margin-bottom: 18px;
+    }
+    #hero .row1 { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; }
+    #hero h1 { font-size: 20px; margin: 0; font-weight: 700; }
+    #hero h1 small { display: block; font-size: 12px; color: var(--muted); font-weight: 400; margin-top: 2px; }
+    #hero .nav { display: flex; gap: 8px; align-items: center; margin-left: auto; }
+    #projPicker {
+      min-width: 280px; max-width: 420px; padding: 9px 12px; font-size: 14px; font-weight: 600;
+      color: var(--ink); border: 2px solid var(--nadec-blue); border-radius: 10px; background: #fff; cursor: pointer;
+    }
+    .navBtn {
+      width: 36px; height: 36px; border-radius: 10px; border: 1px solid var(--line);
+      background: #fff; font-size: 16px; cursor: pointer; color: var(--nadec-blue); font-weight: 700;
+    }
+    .navBtn:disabled { opacity: 0.35; cursor: default; }
+    #chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+    .chip {
+      display: inline-flex; align-items: center; gap: 6px;
+      background: #f2f6fb; border: 1px solid var(--line); border-radius: 999px;
+      padding: 5px 12px; font-size: 12px; color: var(--ink);
+    }
+    .chip b { color: var(--nadec-blue); font-weight: 700; }
+    .chip.warn b { color: var(--red); }
+    #progressRow { display: flex; gap: 20px; flex-wrap: wrap; margin-top: 14px; }
+    .pbox { flex: 1 1 240px; }
+    .pbox .plabel { font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 5px; }
+    .pmeter { position: relative; background: #e8edf3; border-radius: 999px; height: 20px; overflow: hidden; }
+    .pmeter > span { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 999px; transition: width 0.6s ease; }
+    .pmeter .ptxt { position: absolute; width: 100%; text-align: center; font-size: 12px; font-weight: 700; line-height: 20px; }
+
+    /* ---- Journey board ---- */
+    #board {
+      background: #fff; border: 1px solid var(--line); border-radius: 14px;
+      box-shadow: 0 4px 16px rgba(13,40,70,0.07);
+      padding: 20px 10px 12px; overflow-x: auto;
+    }
+    #board h2 { font-size: 15px; margin: 0 0 4px 14px; }
+    #board .sub { font-size: 12px; color: var(--muted); margin: 0 0 8px 14px; }
+    #journeyWrap { position: relative; width: 1180px; height: 600px; margin: 0 auto; }
+    #journeySvg { position: absolute; inset: 0; }
+
+    .stop {
+      position: absolute; width: 54px; height: 54px; margin: -27px 0 0 -27px;
+      border-radius: 50%; display: flex; align-items: center; justify-content: center;
+      color: #fff; font-weight: 700; font-size: 20px;
+      border: 4px solid #fff; box-shadow: 0 3px 10px rgba(13,40,70,0.25);
+      z-index: 3;
+    }
+    .stop.here::after {
+      content: ""; position: absolute; inset: -10px; border-radius: 50%;
+      border: 3px solid var(--nadec-blue); animation: pulse 1.6s ease-out infinite;
+    }
+    @keyframes pulse {
+      0% { transform: scale(0.85); opacity: 0.9; }
+      100% { transform: scale(1.25); opacity: 0; }
+    }
+    .youAreHere {
+      position: absolute; z-index: 4; transform: translate(-50%, 0);
+      background: var(--nadec-blue); color: #fff; font-size: 11px; font-weight: 700;
+      padding: 3px 10px; border-radius: 999px; white-space: nowrap;
+      box-shadow: 0 2px 8px rgba(13,40,70,0.3);
+    }
+
+    .stageCard {
+      position: absolute; width: 190px; margin-left: -95px; z-index: 2;
+      background: #fff; border: 1px solid var(--line); border-radius: 12px;
+      box-shadow: 0 4px 12px rgba(13,40,70,0.10);
+      padding: 10px 12px 9px; text-align: left;
+    }
+    .stageCard.accent { border-top: 4px solid var(--acc, var(--nadec-blue)); }
+    .stageCard h4 { margin: 0 0 4px; font-size: 13px; }
+    .stageCard .desc { font-size: 11px; color: var(--muted); line-height: 1.35; margin-bottom: 6px; }
+    .sbadge {
+      display: inline-block; padding: 2px 9px; border-radius: 999px;
+      font-size: 11px; font-weight: 700; color: #fff;
+    }
+
+    #legend { display: flex; flex-wrap: wrap; gap: 12px; margin: 10px 14px 4px; font-size: 12px; color: var(--muted); }
+    #legend .li { display: inline-flex; align-items: center; gap: 5px; }
+    #legend .dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
+
+    #loading, #error { margin-top: 100px; text-align: center; color: var(--muted); font-size: 15px; }
+    #error { color: var(--red); display: none; }
+
+    @media print {
+      #topBar { display: none; }
+      body { background: #fff; }
+      #content { padding: 0; }
+      #board, #hero { box-shadow: none; }
+    }
+  </style>
+
+  <script>
+    (function () {
+      if (!sessionStorage.getItem("e2e-auth")) {
+        window.location.replace("../../project-portal/webapp/login.html");
+      }
+    })();
+  </script>
+</head>
+<body>
+  <div id="topBar">
+    <button class="ghost" id="backBtn">← Portal</button>
+    <span class="title">Project Journey</span>
+    <div class="spacer"></div>
+    <span class="who" id="who"></span>
+    <button class="signout" id="signoutBtn">Sign out</button>
+  </div>
+
+  <div id="content" style="display:none">
+    <div id="hero">
+      <div class="row1">
+        <h1 id="projTitle"><span id="projName">—</span><small id="projSub"></small></h1>
+        <div class="nav">
+          <button class="navBtn" id="prevBtn" title="Previous project">‹</button>
+          <select id="projPicker"></select>
+          <button class="navBtn" id="nextBtn" title="Next project">›</button>
+        </div>
+      </div>
+      <div id="chips"></div>
+      <div id="progressRow">
+        <div class="pbox">
+          <div class="plabel">E2E journey progress</div>
+          <div class="pmeter"><span id="pmE2e"></span><div class="ptxt" id="ptE2e"></div></div>
+        </div>
+        <div class="pbox">
+          <div class="plabel">Go-live gate (8 checks)</div>
+          <div class="pmeter"><span id="pmGate"></span><div class="ptxt" id="ptGate"></div></div>
+        </div>
+      </div>
+    </div>
+
+    <div id="board">
+      <h2>The journey from idea to go-live…</h2>
+      <p class="sub">Seven lifecycle stages plus the go-live gate — follow the road to see where this project stands today.</p>
+      <div id="journeyWrap">
+        <svg id="journeySvg" viewBox="0 0 1180 600" width="1180" height="600" aria-hidden="true"></svg>
+      </div>
+      <div id="legend"></div>
+    </div>
+  </div>
+
+  <div id="loading">Loading project journeys…</div>
+  <div id="error"></div>
+
+  <script>
+    "use strict";
+
+    // ---- Top bar -------------------------------------------------------------
+    var userName = sessionStorage.getItem("e2e-user-name") || "";
+    var userRole = sessionStorage.getItem("e2e-user-role") || "";
+    document.getElementById("who").textContent = userName + (userRole ? " · " + userRole : "");
+    document.getElementById("backBtn").onclick = function () {
+      window.location.href = "../../project-portal/webapp/index.html";
+    };
+    document.getElementById("signoutBtn").onclick = function () {
+      sessionStorage.removeItem("e2e-auth");
+      sessionStorage.removeItem("e2e-user-name");
+      sessionStorage.removeItem("e2e-user-role");
+      window.location.replace("../../project-portal/webapp/login.html");
+    };
+
+    function esc(s) {
+      return String(s === null || s === undefined ? "" : s)
+        .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+    }
+
+    // ---- Stage metadata --------------------------------------------------------
+    var STAGES = [
+      { key: "businessNeed",     name: "Business Need",     desc: "Why the project exists — problem, impact and expected benefit." },
+      { key: "solutionDesign",   name: "Solution Design",   desc: "How the solution will work — approach and architecture." },
+      { key: "build",            name: "Build",             desc: "Development and configuration of the solution." },
+      { key: "integration",      name: "Integration",       desc: "Connecting systems, interfaces and data flows." },
+      { key: "qualitySecurity",  name: "Quality & Security", desc: "Testing, QA cycles and security approvals." },
+      { key: "releaseReadiness", name: "Release Readiness", desc: "Deployment, rollback and go-live preparations." },
+      { key: "operations",       name: "Operations",        desc: "Handover to support — monitoring and ownership." }
+    ];
+
+    var STATUS_STYLE = {
+      "Completed":         { color: "#2e7d32", label: "Completed" },
+      "In Progress":       { color: "#e58c00", label: "In Progress" },
+      "Blocked":           { color: "#c62828", label: "Blocked" },
+      "Partially Defined": { color: "#f2b950", label: "Partially Defined" },
+      "Missing Input":     { color: "#9aa8b5", label: "Missing Input" },
+      "Not Started":       { color: "#9aa8b5", label: "Not Started" },
+      "Not Applicable":    { color: "#cfd8e3", label: "N/A" }
+    };
+    function styleFor(code) {
+      return STATUS_STYLE[code] || { color: "#9aa8b5", label: code || "Not Started" };
+    }
+
+    // ---- Data -------------------------------------------------------------------
+    var AUTH = sessionStorage.getItem("e2e-auth");
+    var PROJECTS = [];
+    var current = 0;
+
+    fetch("/governance/Projects?$select=ID,name,startDate,targetGoLiveDate,actualGoLiveDate" +
+          "&$expand=readiness,goLive($select=readinessPct)," +
+          "phase($select=name),itOwner($select=name),riskLevel($select=name),domain($select=name)" +
+          "&$filter=IsActiveEntity eq true&$orderby=ID&$top=5000",
+      { headers: { Authorization: AUTH } })
+      .then(function (r) {
+        if (r.status === 401) {
+          sessionStorage.removeItem("e2e-auth");
+          window.location.replace("../../project-portal/webapp/login.html");
+          throw new Error("Not authorized");
+        }
+        if (!r.ok) throw new Error("Request failed: " + r.status);
+        return r.json();
+      })
+      .then(function (j) {
+        PROJECTS = j.value || [];
+        if (!PROJECTS.length) throw new Error("No projects found");
+        document.getElementById("loading").style.display = "none";
+        document.getElementById("content").style.display = "";
+        buildPicker();
+        var want = new URLSearchParams(window.location.search).get("project");
+        var idx = PROJECTS.findIndex(function (p) { return p.ID === want; });
+        show(idx >= 0 ? idx : 0);
+      })
+      .catch(function (err) {
+        document.getElementById("loading").style.display = "none";
+        var e = document.getElementById("error");
+        e.style.display = "";
+        e.textContent = "Could not load journey data: " + (err && err.message ? err.message : "unknown error");
+      });
+
+    function buildPicker() {
+      var sel = document.getElementById("projPicker");
+      sel.innerHTML = PROJECTS.map(function (p, i) {
+        return '<option value="' + i + '">' + esc(p.ID + " — " + (p.name || "")) + "</option>";
+      }).join("");
+      sel.onchange = function () { show(Number(sel.value)); };
+      document.getElementById("prevBtn").onclick = function () { if (current > 0) show(current - 1); };
+      document.getElementById("nextBtn").onclick = function () { if (current < PROJECTS.length - 1) show(current + 1); };
+    }
+
+    // ---- Render one project's journey ---------------------------------------------
+    function num(v) { return (v === null || v === undefined || isNaN(v)) ? null : Number(v); }
+    function fmtD(d) { return d || "—"; }
+
+    function show(i) {
+      current = i;
+      var p = PROJECTS[i];
+      document.getElementById("projPicker").value = String(i);
+      document.getElementById("prevBtn").disabled = i === 0;
+      document.getElementById("nextBtn").disabled = i === PROJECTS.length - 1;
+
+      // Deep-linkable URL (no reload)
+      try {
+        var url = new URL(window.location.href);
+        url.searchParams.set("project", p.ID);
+        window.history.replaceState(null, "", url.toString());
+      } catch (e) { /* older browsers: ignore */ }
+
+      document.getElementById("projName").textContent = p.name || p.ID;
+      document.getElementById("projSub").textContent = p.ID;
+
+      // Chips
+      var today = new Date().toISOString().slice(0, 10);
+      var overdue = p.targetGoLiveDate && !p.actualGoLiveDate && p.targetGoLiveDate < today;
+      var chips = [
+        { l: "Developer", v: (p.itOwner && p.itOwner.name) || "—" },
+        { l: "Phase", v: (p.phase && p.phase.name) || "—" },
+        { l: "Domain", v: (p.domain && p.domain.name) || "—" },
+        { l: "Risk", v: (p.riskLevel && p.riskLevel.name) || "—" },
+        { l: "Start", v: fmtD(p.startDate) },
+        { l: "Target go-live", v: fmtD(p.targetGoLiveDate) + (overdue ? " ⚠ overdue" : ""), warn: overdue },
+        { l: "Actual go-live", v: fmtD(p.actualGoLiveDate) }
+      ];
+      document.getElementById("chips").innerHTML = chips.map(function (c) {
+        return '<span class="chip' + (c.warn ? " warn" : "") + '">' + esc(c.l) + ': <b>' + esc(c.v) + "</b></span>";
+      }).join("");
+
+      // Progress meters
+      var e2e = p.readiness ? num(p.readiness.overallReadiness) : null;
+      var gate = p.goLive ? num(p.goLive.readinessPct) : null;
+      setMeter("pmE2e", "ptE2e", e2e);
+      setMeter("pmGate", "ptGate", gate);
+
+      drawJourney(p);
+    }
+
+    function meterColor(v) {
+      if (v >= 80) return "#2e7d32";
+      if (v >= 40) return "#e58c00";
+      return "#c62828";
+    }
+    function setMeter(barId, txtId, v) {
+      var bar = document.getElementById(barId), txt = document.getElementById(txtId);
+      if (v === null) { bar.style.width = "0"; txt.textContent = "Not started"; return; }
+      var pct = Math.max(0, Math.min(100, v));
+      bar.style.width = pct + "%";
+      bar.style.background = meterColor(pct);
+      txt.textContent = Math.round(pct) + "%";
+    }
+
+    // ---- The winding road -------------------------------------------------------
+    // 8 stops (7 stages + go-live) along a serpentine path. Cards alternate
+    // above / below the road like the reference poster.
+    var STOP_POS = [
+      { x: 95,   y: 190 }, { x: 245,  y: 400 }, { x: 395,  y: 190 }, { x: 545,  y: 400 },
+      { x: 695,  y: 190 }, { x: 845,  y: 400 }, { x: 995,  y: 190 }, { x: 1110, y: 380 }
+    ];
+
+    function roadPath() {
+      var d = "M " + STOP_POS[0].x + " " + STOP_POS[0].y;
+      for (var i = 1; i < STOP_POS.length; i++) {
+        var a = STOP_POS[i - 1], b = STOP_POS[i];
+        var mx = (a.x + b.x) / 2;
+        d += " C " + mx + " " + a.y + ", " + mx + " " + b.y + ", " + b.x + " " + b.y;
+      }
+      return d;
+    }
+
+    function goLiveStatus(p) {
+      var gate = p.goLive ? num(p.goLive.readinessPct) : null;
+      if (p.actualGoLiveDate) return { color: "#2e7d32", label: "Live", desc: "Went live on " + p.actualGoLiveDate + "." };
+      if (gate !== null && gate >= 100) return { color: "#2e7d32", label: "Gate cleared", desc: "All 8 go-live checks passed — ready to launch." };
+      if (gate !== null && gate > 0) return { color: "#e58c00", label: "Gate " + Math.round(gate) + "%", desc: "Go-live checklist in progress (" + Math.round(gate) + "% of checks passed)." };
+      return { color: "#9aa8b5", label: "Not Started", desc: "Go-live checklist not started yet." };
+    }
+
+    function drawJourney(p) {
+      var wrap = document.getElementById("journeyWrap");
+      var svg = document.getElementById("journeySvg");
+      var r = p.readiness || {};
+
+      // Road (SVG): base + dashed centerline + progress overlay
+      svg.innerHTML =
+        '<path d="' + roadPath() + '" fill="none" stroke="#cfe0f4" stroke-width="28" stroke-linecap="round"/>' +
+        '<path d="' + roadPath() + '" fill="none" stroke="#ffffff" stroke-width="3" stroke-dasharray="10 12" stroke-linecap="round" opacity="0.9"/>';
+
+      // Remove old HTML overlays
+      Array.prototype.slice.call(wrap.querySelectorAll(".stop, .stageCard, .youAreHere")).forEach(function (n) { n.remove(); });
+
+      // Stage statuses + go-live stop
+      var stops = STAGES.map(function (s) {
+        var code = r[s.key + "_code"] || null;
+        var st = styleFor(code);
+        return { name: s.name, desc: s.desc, color: st.color, label: st.label, code: code };
+      });
+      var gl = goLiveStatus(p);
+      stops.push({ name: "Go-Live!", desc: gl.desc, color: gl.color, label: gl.label, code: gl.label });
+
+      // "You are here": first stop that is not Completed / N/A (or the go-live
+      // stop when every stage is done and the project is not live yet).
+      var hereIdx = -1;
+      for (var i = 0; i < STAGES.length; i++) {
+        var c = stops[i].code;
+        if (c !== "Completed" && c !== "Not Applicable") { hereIdx = i; break; }
+      }
+      if (hereIdx === -1) hereIdx = p.actualGoLiveDate ? -1 : stops.length - 1;
+
+      stops.forEach(function (s, idx) {
+        var pos = STOP_POS[idx];
+
+        var stop = document.createElement("div");
+        stop.className = "stop" + (idx === hereIdx ? " here" : "");
+        stop.style.left = pos.x + "px";
+        stop.style.top = pos.y + "px";
+        stop.style.background = s.color;
+        stop.textContent = idx === stops.length - 1 ? "★" : String(idx + 1);
+        stop.title = s.name + " — " + s.label;
+        wrap.appendChild(stop);
+
+        if (idx === hereIdx) {
+          var flag = document.createElement("div");
+          flag.className = "youAreHere";
+          flag.style.left = pos.x + "px";
+          flag.style.top = (pos.y + 34) + "px";
+          flag.textContent = "You are here";
+          wrap.appendChild(flag);
+        }
+
+        var card = document.createElement("div");
+        card.className = "stageCard accent";
+        card.style.setProperty("--acc", s.color);
+        card.style.left = pos.x + "px";
+        // Cards above the top band, below the bottom band.
+        if (pos.y < 300) { card.style.top = (pos.y - 148) + "px"; }
+        else { card.style.top = (pos.y + 56) + "px"; }
+        card.innerHTML =
+          "<h4>" + esc(s.name) + "</h4>" +
+          '<div class="desc">' + esc(s.desc) + "</div>" +
+          '<span class="sbadge" style="background:' + esc(s.color) + '">' + esc(s.label) + "</span>";
+        wrap.appendChild(card);
+      });
+
+      // Legend
+      var legendItems = [
+        ["#2e7d32", "Completed"], ["#e58c00", "In Progress"], ["#f2b950", "Partially Defined"],
+        ["#c62828", "Blocked"], ["#9aa8b5", "Not Started / Missing Input"], ["#cfd8e3", "Not Applicable"]
+      ];
+      document.getElementById("legend").innerHTML = legendItems.map(function (li) {
+        return '<span class="li"><span class="dot" style="background:' + li[0] + '"></span>' + esc(li[1]) + "</span>";
+      }).join("");
+    }
+  </script>
+  <script src="/shared/nav.js"></script>
+  <script src="/shared/searchselect.js"></script>
+</body>
+</html>

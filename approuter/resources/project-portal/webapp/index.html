@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NADEC E2E Delivery Governance</title>
+
+  <style>
+    html, body { height: 100%; margin: 0; box-sizing: border-box; }
+    #content, #rootComponentContainer { height: 100%; }
+  </style>
+
+  <script>
+    // No account chosen yet → send the user to the sign-in picker first.
+    if (!sessionStorage.getItem("e2e-auth")) {
+      window.location.replace("login.html");
+    }
+  </script>
+
+  <script
+    id="sap-ui-bootstrap"
+    src="https://ui5.sap.com/1.145.0/resources/sap-ui-core.js"
+    data-sap-ui-theme="sap_horizon"
+    data-sap-ui-libs="sap.m,sap.fe.templates"
+    data-sap-ui-compatVersion="edge"
+    data-sap-ui-async="true"
+    data-sap-ui-frameOptions="trusted"
+    data-sap-ui-resourceroots='{ "projectportal": "./" }'>
+  </script>
+
+  <script>
+    sap.ui.getCore().attachInit(function () {
+      sap.ui.require([ "sap/ui/core/ComponentSupport" ]);
+    });
+  </script>
+</head>
+<body class="sapUiBody sapUiSizeCompact" id="content">
+  <div
+    id="rootComponentContainer"
+    data-sap-ui-component
+    data-id="rootComponentContainer"
+    data-name="projectportal"
+    data-height="100%"
+    data-settings='{ "id": "projectportal" }'
+    data-handle-validation="true">
+  </div>
+  <script src="/shared/nav.js"></script>
+</body>
+</html>

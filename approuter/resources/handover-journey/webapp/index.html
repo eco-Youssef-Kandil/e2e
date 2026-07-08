@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NADEC E2E — Handover Journey</title>
+
+  <style>
+    :root {
+      --nadec-blue: #0033A0;
+      --nadec-blue-dark: #002673;
+      --ink: #1d2d3e;
+      --muted: #5b6b7b;
+      --line: #d9e1e8;
+      --bg: #eef3f7;
+      --green: #2e7d32;
+      --amber: #e58c00;
+      --red: #c62828;
+      --gray: #9aa8b5;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0; min-height: 100%;
+      font-family: "72", "72full", Arial, Helvetica, sans-serif;
+      color: var(--ink);
+      background: linear-gradient(180deg, #eaf1fb 0%, #eef3f7 40%, #e7f0f7 100%);
+    }
+    #topBar {
+      position: fixed; top: 0; left: 0; right: 0; height: 48px; z-index: 1000;
+      display: flex; align-items: center; gap: 12px; padding: 0 16px;
+      background: linear-gradient(135deg, var(--nadec-blue), var(--nadec-blue-dark));
+      color: #fff; box-shadow: 0 2px 4px rgba(0,0,0,0.18); font-size: 13px;
+    }
+    #topBar .ghost {
+      padding: 5px 12px; font-size: 13px; font-weight: 600; color: #fff; cursor: pointer;
+      background: rgba(255,255,255,0.14); border: 1px solid rgba(255,255,255,0.5); border-radius: 6px;
+    }
+    #topBar .title { font-weight: 600; font-size: 15px; letter-spacing: 0.3px; white-space: nowrap; }
+    #topBar .spacer { flex: 1 1 auto; }
+    #topBar .who { opacity: 0.85; white-space: nowrap; }
+    #topBar .signout {
+      padding: 5px 14px; font-size: 13px; font-weight: 600; color: var(--nadec-blue); cursor: pointer;
+      background: #fff; border: 1px solid #fff; border-radius: 6px;
+    }
+
+    #content { padding: 66px 20px 40px; max-width: 1280px; margin: 0 auto; }
+
+    /* ---- Header / picker ---- */
+    #hero {
+      background: #fff; border: 1px solid var(--line); border-radius: 14px;
+      box-shadow: 0 4px 16px rgba(13,40,70,0.07);
+      padding: 18px 22px; margin-bottom: 18px;
+    }
+    #hero .row1 { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; }
+    #hero h1 { font-size: 20px; margin: 0; font-weight: 700; }
+    #hero h1 small { display: block; font-size: 12px; color: var(--muted); font-weight: 400; margin-top: 2px; }
+    #hero .nav { display: flex; gap: 8px; align-items: center; margin-left: auto; }
+    #projPicker {
+      min-width: 280px; max-width: 420px; padding: 9px 12px; font-size: 14px; font-weight: 600;
+      color: var(--ink); border: 2px solid var(--nadec-blue); border-radius: 10px; background: #fff; cursor: pointer;
+    }
+    .navBtn {
+      width: 36px; height: 36px; border-radius: 10px; border: 1px solid var(--line);
+      background: #fff; font-size: 16px; cursor: pointer; color: var(--nadec-blue); font-weight: 700;
+    }
+    .navBtn:disabled { opacity: 0.35; cursor: default; }
+    #chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+    .chip {
+      display: inline-flex; align-items: center; gap: 6px;
+      background: #f2f6fb; border: 1px solid var(--line); border-radius: 999px;
+      padding: 5px 12px; font-size: 12px; color: var(--ink);
+    }
+    .chip b { color: var(--nadec-blue); font-weight: 700; }
+    .chip.warn b { color: var(--red); }
+    #progressRow { display: flex; gap: 20px; flex-wrap: wrap; margin-top: 14px; align-items: flex-end; }
+    .pbox { flex: 1 1 240px; }
+    .pbox .plabel { font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 5px; }
+    .pmeter { position: relative; background: #e8edf3; border-radius: 999px; height: 20px; overflow: hidden; }
+    .pmeter > span { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 999px; transition: width 0.6s ease; }
+    .pmeter .ptxt { position: absolute; width: 100%; text-align: center; font-size: 12px; font-weight: 700; line-height: 20px; }
+    #openWs {
+      padding: 9px 16px; font-size: 13px; font-weight: 700; color: #fff; cursor: pointer;
+      background: var(--nadec-blue); border: none; border-radius: 10px; white-space: nowrap;
+    }
+    #openWs:hover { background: var(--nadec-blue-dark); }
+
+    /* ---- Journey board ---- */
+    #board {
+      background: #fff; border: 1px solid var(--line); border-radius: 14px;
+      box-shadow: 0 4px 16px rgba(13,40,70,0.07);
+      padding: 20px 10px 12px; overflow-x: auto;
+    }
+    #board h2 { font-size: 15px; margin: 0 0 4px 14px; }
+    #board .sub { font-size: 12px; color: var(--muted); margin: 0 0 8px 14px; }
+    #journeyWrap { position: relative; width: 1180px; height: 600px; margin: 0 auto; }
+    #journeySvg { position: absolute; inset: 0; }
+
+    .stop {
+      position: absolute; width: 54px; height: 54px; margin: -27px 0 0 -27px;
+      border-radius: 50%; display: flex; align-items: center; justify-content: center;
+      color: #fff; font-weight: 700; font-size: 20px;
+      border: 4px solid #fff; box-shadow: 0 3px 10px rgba(13,40,70,0.25);
+      z-index: 3;
+    }
+    .stop.here::after {
+      content: ""; position: absolute; inset: -10px; border-radius: 50%;
+      border: 3px solid var(--nadec-blue); animation: pulse 1.6s ease-out infinite;
+    }
+    @keyframes pulse {
+      0% { transform: scale(0.85); opacity: 0.9; }
+      100% { transform: scale(1.25); opacity: 0; }
+    }
+    .youAreHere {
+      position: absolute; z-index: 4; transform: translate(-50%, 0);
+      background: var(--nadec-blue); color: #fff; font-size: 11px; font-weight: 700;
+      padding: 3px 10px; border-radius: 999px; white-space: nowrap;
+      box-shadow: 0 2px 8px rgba(13,40,70,0.3);
+    }
+
+    .stageCard {
+      position: absolute; width: 190px; margin-left: -95px; z-index: 2;
+      background: #fff; border: 1px solid var(--line); border-radius: 12px;
+      box-shadow: 0 4px 12px rgba(13,40,70,0.10);
+      padding: 10px 12px 9px; text-align: left;
+    }
+    .stageCard.accent { border-top: 4px solid var(--acc, var(--nadec-blue)); }
+    .stageCard h4 { margin: 0 0 4px; font-size: 13px; }
+    .stageCard .desc { font-size: 11px; color: var(--muted); line-height: 1.35; margin-bottom: 6px; }
+    .sbadge {
+      display: inline-block; padding: 2px 9px; border-radius: 999px;
+      font-size: 11px; font-weight: 700; color: #fff;
+    }
+
+    #legend { display: flex; flex-wrap: wrap; gap: 12px; margin: 10px 14px 4px; font-size: 12px; color: var(--muted); }
+    #legend .li { display: inline-flex; align-items: center; gap: 5px; }
+    #legend .dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
+
+    /* ---- No-plan empty state ---- */
+    #noPlan {
+      display: none; background: #fff; border: 1px solid var(--line); border-radius: 14px;
+      box-shadow: 0 4px 16px rgba(13,40,70,0.07);
+      padding: 60px 30px; text-align: center; color: var(--muted);
+    }
+    #noPlan .big { font-size: 40px; margin-bottom: 10px; }
+    #noPlan h3 { color: var(--ink); font-size: 17px; margin: 0 0 6px; }
+    #noPlan p { font-size: 13px; margin: 0 0 18px; }
+
+    #loading, #error { margin-top: 100px; text-align: center; color: var(--muted); font-size: 15px; }
+    #error { color: var(--red); display: none; }
+
+    @media print {
+      #topBar { display: none; }
+      body { background: #fff; }
+      #content { padding: 0; }
+      #board, #hero { box-shadow: none; }
+    }
+  </style>
+
+  <script>
+    (function () {
+      if (!sessionStorage.getItem("e2e-auth")) {
+        window.location.replace("../../project-portal/webapp/login.html");
+      }
+    })();
+  </script>
+</head>
+<body>
+  <div id="topBar">
+    <button class="ghost" id="backBtn">← Portal</button>
+    <span class="title">Handover Journey</span>
+    <div class="spacer"></div>
+    <span class="who" id="who"></span>
+    <button class="signout" id="signoutBtn">Sign out</button>
+  </div>
+
+  <div id="content" style="display:none">
+    <div id="hero">
+      <div class="row1">
+        <h1 id="projTitle"><span id="projName">—</span><small id="projSub"></small></h1>
+        <div class="nav">
+          <button class="navBtn" id="prevBtn" title="Previous project">‹</button>
+          <select id="projPicker"></select>
+          <button class="navBtn" id="nextBtn" title="Next project">›</button>
+        </div>
+      </div>
+      <div id="chips"></div>
+      <div id="progressRow">
+        <div class="pbox">
+          <div class="plabel">Handover progress</div>
+          <div class="pmeter"><span id="pmHo"></span><div class="ptxt" id="ptHo"></div></div>
+        </div>
+        <button id="openWs">Open Handover Workspace →</button>
+      </div>
+    </div>
+
+    <div id="board">
+      <h2>The journey from delivery team to support team…</h2>
+      <p class="sub">Six handover phases plus the final sign-off — follow the road to see how far the handover has come.</p>
+      <div id="journeyWrap">
+        <svg id="journeySvg" viewBox="0 0 1180 600" width="1180" height="600" aria-hidden="true"></svg>
+      </div>
+      <div id="legend"></div>
+    </div>
+
+    <div id="noPlan">
+      <div class="big"></div>
+      <h3>No handover plan yet</h3>
+      <p>This project doesn't have a handover plan. Create one in the Handover workspace — it starts you off with the 15 standard tasks.</p>
+      <button id="noPlanBtn" class="signout" style="color:#fff;background:var(--nadec-blue);border-color:var(--nadec-blue);padding:9px 18px;border-radius:10px;cursor:pointer;font-weight:700">Go to Handover Workspace</button>
+    </div>
+  </div>
+
+  <div id="loading">Loading handover journeys…</div>
+  <div id="error"></div>
+
+  <script>
+    "use strict";
+
+    // ---- Top bar -------------------------------------------------------------
+    var userName = sessionStorage.getItem("e2e-user-name") || "";
+    var userRole = sessionStorage.getItem("e2e-user-role") || "";
+    document.getElementById("who").textContent = userName + (userRole ? " · " + userRole : "");
+    document.getElementById("backBtn").onclick = function () {
+      window.location.href = "../../project-portal/webapp/index.html";
+    };
+    document.getElementById("signoutBtn").onclick = function () {
+      sessionStorage.removeItem("e2e-auth");
+      sessionStorage.removeItem("e2e-user-name");
+      sessionStorage.removeItem("e2e-user-role");
+      window.location.replace("../../project-portal/webapp/login.html");
+    };
+
+    function esc(s) {
+      return String(s === null || s === undefined ? "" : s)
+        .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+    }
+
+    // ---- Phase metadata --------------------------------------------------------
+    // Same six phases the Handover workspace seeds its 15 template tasks into.
+    var PHASES = [
+      { key: "Preparation",        name: "Preparation",        desc: "Scope the handover — what is being handed over, to whom, and by when." },
+      { key: "Documentation",      name: "Documentation",      desc: "Runbooks, architecture notes and how-to guides for the support team." },
+      { key: "Knowledge Transfer", name: "Knowledge Transfer", desc: "Walkthrough sessions and shadowing so support knows the solution." },
+      { key: "Access & Setup",     name: "Access & Setup",     desc: "Support team gets system access, monitoring and alerting in place." },
+      { key: "Hypercare",          name: "Hypercare",          desc: "Delivery team stays close while support handles real tickets." },
+      { key: "Sign-off",           name: "Sign-off",           desc: "Both sides confirm the handover is complete — support owns it now." }
+    ];
+
+    var COLORS = {
+      done:    "#2e7d32",
+      active:  "#e58c00",
+      blocked: "#c62828",
+      todo:    "#9aa8b5",
+      na:      "#cfd8e3"
+    };
+
+    // ---- Data -------------------------------------------------------------------
+    var AUTH = sessionStorage.getItem("e2e-auth");
+    var PROJECTS = [];
+    var HANDOVER = {};   // project ID -> { plan, tasks: [] }
+    var current = 0;
+
+    function getJson(url) {
+      return fetch(url, { headers: { Authorization: AUTH } }).then(function (r) {
+        if (r.status === 401) {
+          sessionStorage.removeItem("e2e-auth");
+          window.location.replace("../../project-portal/webapp/login.html");
+          throw new Error("Not authorized");
+        }
+        if (!r.ok) throw new Error("Request failed: " + r.status);
+        return r.json();
+      });
+    }
+
+    Promise.all([
+      getJson("/governance/Projects?$select=ID,name,actualGoLiveDate" +
+              "&$expand=itOwner($select=name),phase($select=name)" +
+              "&$filter=IsActiveEntity eq true&$orderby=ID&$top=5000"),
+      getJson("/governance/HandoverPlans?$select=project_ID,status_code,targetDate,actualDate," +
+              "fromOwner_code&$expand=toOwners($select=employee_code)&$top=5000"),
+      getJson("/governance/HandoverTasks?$select=plan_project_ID,phase,status_code,title,owner_code,dueDate&$top=5000")
+    ])
+      .then(function (res) {
+        PROJECTS = res[0].value || [];
+        (res[1].value || []).forEach(function (pl) {
+          HANDOVER[pl.project_ID] = { plan: pl, tasks: [] };
+        });
+        (res[2].value || []).forEach(function (t) {
+          var h = HANDOVER[t.plan_project_ID];
+          if (h) h.tasks.push(t);
+        });
+        if (!PROJECTS.length) throw new Error("No projects found");
+        document.getElementById("loading").style.display = "none";
+        document.getElementById("content").style.display = "";
+        buildPicker();
+        var want = new URLSearchParams(window.location.search).get("project");
+        var idx = PROJECTS.findIndex(function (p) { return p.ID === want; });
+        if (idx < 0) {
+          // Default to the first project that actually has a handover plan.
+          idx = PROJECTS.findIndex(function (p) { return !!HANDOVER[p.ID]; });
+        }
+        show(idx >= 0 ? idx : 0);
+      })
+      .catch(function (err) {
+        document.getElementById("loading").style.display = "none";
+        var e = document.getElementById("error");
+        e.style.display = "";
+        e.textContent = "Could not load handover data: " + (err && err.message ? err.message : "unknown error");
+      });
+
+    function buildPicker() {
+      var sel = document.getElementById("projPicker");
+      sel.innerHTML = PROJECTS.map(function (p, i) {
+        var mark = HANDOVER[p.ID] ? "✓ " : "";
+        return '<option value="' + i + '">' + esc(mark + p.ID + " — " + (p.name || "")) + "</option>";
+      }).join("");
+      sel.onchange = function () { show(Number(sel.value)); };
+      document.getElementById("prevBtn").onclick = function () { if (current > 0) show(current - 1); };
+      document.getElementById("nextBtn").onclick = function () { if (current < PROJECTS.length - 1) show(current + 1); };
+    }
+
+    // ---- Phase status -------------------------------------------------------------
+    function phaseState(tasks) {
+      var countable = tasks.filter(function (t) { return t.status_code !== "Not Applicable"; });
+      if (!tasks.length) return { state: "na", label: "No tasks", done: 0, total: 0 };
+      if (!countable.length) return { state: "na", label: "N/A", done: 0, total: 0 };
+      var done = countable.filter(function (t) { return t.status_code === "Completed"; }).length;
+      var blocked = countable.some(function (t) { return t.status_code === "Blocked"; });
+      var started = countable.some(function (t) {
+        return t.status_code === "In Progress" || t.status_code === "Completed";
+      });
+      if (done === countable.length) return { state: "done", label: "Completed", done: done, total: countable.length };
+      if (blocked) return { state: "blocked", label: done + " / " + countable.length + " · blocked", done: done, total: countable.length };
+      if (started) return { state: "active", label: done + " / " + countable.length + " done", done: done, total: countable.length };
+      return { state: "todo", label: "Not Started", done: 0, total: countable.length };
+    }
+
+    // ---- Show a project -------------------------------------------------------------
+    function show(i) {
+      current = i;
+      var p = PROJECTS[i];
+      var h = HANDOVER[p.ID];
+      document.getElementById("projPicker").value = String(i);
+      document.getElementById("prevBtn").disabled = i === 0;
+      document.getElementById("nextBtn").disabled = i === PROJECTS.length - 1;
+
+      document.getElementById("projName").textContent = p.ID + " — " + (p.name || "");
+      document.getElementById("projSub").textContent =
+        (p.itOwner && p.itOwner.name ? "Developer: " + p.itOwner.name : "") +
+        (p.phase && p.phase.name ? "   ·   Phase: " + p.phase.name : "");
+
+      document.getElementById("openWs").onclick = openWorkspace;
+      document.getElementById("noPlanBtn").onclick = openWorkspace;
+      function openWorkspace() {
+        window.location.href = "../../handover/webapp/index.html?project=" + encodeURIComponent(p.ID);
+      }
+
+      var board = document.getElementById("board");
+      var noPlan = document.getElementById("noPlan");
+      var chips = document.getElementById("chips");
+      var progressRow = document.getElementById("progressRow");
+
+      if (!h) {
+        board.style.display = "none";
+        noPlan.style.display = "";
+        chips.innerHTML = '<span class="chip warn"><b>No handover plan</b></span>' +
+          (p.actualGoLiveDate ? '<span class="chip">Live since <b>' + esc(p.actualGoLiveDate) + "</b></span>" : "");
+        progressRow.style.display = "none";
+        return;
+      }
+      board.style.display = "";
+      noPlan.style.display = "none";
+      progressRow.style.display = "";
+
+      // Chips: who → who, dates, plan status
+      var pl = h.plan;
+      var today = new Date().toISOString().slice(0, 10);
+      var overdue = pl.targetDate && !pl.actualDate && pl.targetDate < today;
+      chips.innerHTML =
+        '<span class="chip">From <b>' + esc(pl.fromOwner_code || "—") + "</b></span>" +
+        '<span class="chip">To <b>' + esc(pl.toOwners && pl.toOwners.length ? pl.toOwners.map(function (r) { return r.employee_code; }).join(", ") : "—") + "</b></span>" +
+        '<span class="chip' + (overdue ? " warn" : "") + '">Target <b>' + esc(pl.targetDate || "—") + (overdue ? " ⚠" : "") + "</b></span>" +
+        (pl.actualDate ? '<span class="chip">Handed over <b>' + esc(pl.actualDate) + "</b></span>" : "") +
+        '<span class="chip">Status <b>' + esc(pl.status_code || "Not Started") + "</b></span>";
+
+      // Tasks in custom phases don't appear as road stops — surface them so
+      // they're never silently invisible.
+      var KNOWN = PHASES.map(function (ph) { return ph.key; });
+      var extra = h.tasks.filter(function (t) {
+        return KNOWN.indexOf(t.phase) < 0 && t.status_code !== "Not Applicable";
+      });
+      if (extra.length) {
+        var extraDone = extra.filter(function (t) { return t.status_code === "Completed"; }).length;
+        chips.innerHTML += '<span class="chip">+ <b>' + extra.length + "</b> task" +
+          (extra.length > 1 ? "s" : "") + " in other phases (" + extraDone + " done)</span>";
+      }
+
+      // Progress meter
+      var countable = h.tasks.filter(function (t) { return t.status_code !== "Not Applicable"; });
+      var done = countable.filter(function (t) { return t.status_code === "Completed"; }).length;
+      var pct = countable.length ? Math.round(done / countable.length * 100) : 0;
+      var bar = document.getElementById("pmHo");
+      bar.style.width = pct + "%";
+      bar.style.background = pct >= 100 ? COLORS.done : pct > 0 ? COLORS.active : COLORS.todo;
+      document.getElementById("ptHo").textContent = done + " of " + countable.length + " tasks · " + pct + "%";
+
+      drawJourney(h);
+    }
+
+    // ---- The winding road -------------------------------------------------------
+    // 7 stops (6 handover phases + handed-over finish) along a serpentine path.
+    var STOP_POS = [
+      { x: 95,  y: 190 }, { x: 260, y: 400 }, { x: 425, y: 190 }, { x: 590, y: 400 },
+      { x: 755, y: 190 }, { x: 920, y: 400 }, { x: 1085, y: 190 }
+    ];
+
+    function roadPath() {
+      var d = "M " + STOP_POS[0].x + " " + STOP_POS[0].y;
+      for (var i = 1; i < STOP_POS.length; i++) {
+        var a = STOP_POS[i - 1], b = STOP_POS[i];
+        var mx = (a.x + b.x) / 2;
+        d += " C " + mx + " " + a.y + ", " + mx + " " + b.y + ", " + b.x + " " + b.y;
+      }
+      return d;
+    }
+
+    function drawJourney(h) {
+      var wrap = document.getElementById("journeyWrap");
+      var svg = document.getElementById("journeySvg");
+
+      svg.innerHTML =
+        '<path d="' + roadPath() + '" fill="none" stroke="#cfe0f4" stroke-width="28" stroke-linecap="round"/>' +
+        '<path d="' + roadPath() + '" fill="none" stroke="#ffffff" stroke-width="3" stroke-dasharray="10 12" stroke-linecap="round" opacity="0.9"/>';
+
+      Array.prototype.slice.call(wrap.querySelectorAll(".stop, .stageCard, .youAreHere")).forEach(function (n) { n.remove(); });
+
+      // Phase stops
+      var stops = PHASES.map(function (ph) {
+        var tasks = h.tasks.filter(function (t) { return t.phase === ph.key; });
+        var st = phaseState(tasks);
+        return { name: ph.name, desc: ph.desc, state: st.state, label: st.label,
+                 color: COLORS[st.state] };
+      });
+
+      // Final stop: handed over! Judged on ALL tasks (including any in custom
+      // phases that don't appear as road stops), so the finish flag can never
+      // show "complete" while the progress meter is below 100%.
+      var allTasks = h.tasks.filter(function (t) { return t.status_code !== "Not Applicable"; });
+      var allTasksDone = allTasks.length > 0 && allTasks.every(function (t) { return t.status_code === "Completed"; });
+      var finished = h.plan.status_code === "Completed" || allTasksDone;
+      stops.push(finished
+        ? { name: "Handed Over!", desc: "The support team owns this solution now" +
+              (h.plan.actualDate ? " — since " + h.plan.actualDate : "") + ".",
+            state: "done", label: "Complete", color: COLORS.done }
+        : { name: "Handed Over!", desc: "Finish all phases to complete the handover to the support team.",
+            state: "todo", label: "Not yet", color: COLORS.todo });
+
+      // "You are here": first phase not fully done (or the finish while pending)
+      var hereIdx = -1;
+      for (var i = 0; i < PHASES.length; i++) {
+        if (stops[i].state !== "done" && stops[i].state !== "na") { hereIdx = i; break; }
+      }
+      if (hereIdx === -1 && !finished) hereIdx = stops.length - 1;
+
+      stops.forEach(function (s, idx) {
+        var pos = STOP_POS[idx];
+
+        var stop = document.createElement("div");
+        stop.className = "stop" + (idx === hereIdx ? " here" : "");
+        stop.style.left = pos.x + "px";
+        stop.style.top = pos.y + "px";
+        stop.style.background = s.color;
+        stop.textContent = String(idx + 1);
+        stop.title = s.name + " — " + s.label;
+        wrap.appendChild(stop);
+
+        if (idx === hereIdx) {
+          var flag = document.createElement("div");
+          flag.className = "youAreHere";
+          flag.style.left = pos.x + "px";
+          flag.style.top = (pos.y + 34) + "px";
+          flag.textContent = "You are here";
+          wrap.appendChild(flag);
+        }
+
+        var card = document.createElement("div");
+        card.className = "stageCard accent";
+        card.style.setProperty("--acc", s.color);
+        card.style.left = pos.x + "px";
+        if (pos.y < 300) { card.style.top = (pos.y - 148) + "px"; }
+        else { card.style.top = (pos.y + 56) + "px"; }
+        card.innerHTML =
+          "<h4>" + esc(s.name) + "</h4>" +
+          '<div class="desc">' + esc(s.desc) + "</div>" +
+          '<span class="sbadge" style="background:' + esc(s.color) + '">' + esc(s.label) + "</span>";
+        wrap.appendChild(card);
+      });
+
+      // Legend
+      var legendItems = [
+        [COLORS.done, "Completed"], [COLORS.active, "In Progress"],
+        [COLORS.blocked, "Has blocked tasks"], [COLORS.todo, "Not Started"],
+        [COLORS.na, "No tasks / N/A"]
+      ];
+      document.getElementById("legend").innerHTML = legendItems.map(function (li) {
+        return '<span class="li"><span class="dot" style="background:' + li[0] + '"></span>' + esc(li[1]) + "</span>";
+      }).join("");
+    }
+  </script>
+  <script src="/shared/nav.js"></script>
+  <script src="/shared/searchselect.js"></script>
+</body>
+</html>

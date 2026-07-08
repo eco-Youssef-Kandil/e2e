@@ -1,0 +1,154 @@
+{
+  "_version": "1.59.0",
+  "sap.app": {
+    "id": "projectportal",
+    "type": "application",
+    "title": "NADEC E2E Delivery Governance",
+    "description": "Application-team portal for end-to-end project delivery governance",
+    "i18n": "i18n/i18n.properties",
+    "applicationVersion": {
+      "version": "1.0.0"
+    },
+    "dataSources": {
+      "mainService": {
+        "uri": "/governance/",
+        "type": "OData",
+        "settings": {
+          "odataVersion": "4.0"
+        }
+      }
+    },
+    "crossNavigation": {
+      "inbounds": {
+        "ProjectPortal-display": {
+          "semanticObject": "ProjectPortal",
+          "action": "display",
+          "title": "{{appTitle}}",
+          "signature": {
+            "parameters": {},
+            "additionalParameters": "allowed"
+          }
+        }
+      }
+    }
+  },
+  "sap.ui": {
+    "technology": "UI5",
+    "icons": {
+      "icon": "sap-icon://project-definition-triangle-2"
+    },
+    "deviceTypes": {
+      "desktop": true,
+      "tablet": true,
+      "phone": true
+    }
+  },
+  "sap.ui5": {
+    "flexEnabled": true,
+    "dependencies": {
+      "minUI5Version": "1.120.0",
+      "libs": {
+        "sap.m": {},
+        "sap.ui.core": {},
+        "sap.fe.templates": {}
+      }
+    },
+    "extends": {
+      "extensions": {
+        "sap.ui.controllerExtensions": {
+          "sap.fe.templates.ObjectPage.ObjectPageController": {
+            "controllerName": "projectportal.ext.ObjectPageExt"
+          }
+        }
+      }
+    },
+    "models": {
+      "i18n": {
+        "type": "sap.ui.model.resource.ResourceModel",
+        "settings": {
+          "bundleName": "projectportal.i18n.i18n"
+        }
+      },
+      "": {
+        "dataSource": "mainService",
+        "preload": true,
+        "settings": {
+          "synchronizationMode": "None",
+          "operationMode": "Server",
+          "autoExpandSelect": true,
+          "earlyRequests": true
+        }
+      }
+    },
+    "resources": {
+      "css": [
+        { "uri": "css/style.css" }
+      ]
+    },
+    "routing": {
+      "routes": [
+        {
+          "name": "ProjectsList",
+          "pattern": ":?query:",
+          "target": "ProjectsList"
+        },
+        {
+          "name": "ProjectsObjectPage",
+          "pattern": "Projects({key}):?query:",
+          "target": "ProjectsObjectPage"
+        }
+      ],
+      "targets": {
+        "ProjectsList": {
+          "type": "Component",
+          "id": "ProjectsList",
+          "name": "sap.fe.templates.ListReport",
+          "options": {
+            "settings": {
+              "entitySet": "Projects",
+              "variantManagement": "None",
+              "initialLoad": true,
+              "controlConfiguration": {
+                "@com.sap.vocabularies.UI.v1.SelectionFields": {
+                  "filterBarSettings": {
+                    "liveMode": true
+                  }
+                },
+                "@com.sap.vocabularies.UI.v1.LineItem": {
+                  "tableSettings": {
+                    "type": "ResponsiveTable",
+                    "personalization": true,
+                    "enableExport": true
+                  }
+                }
+              },
+              "navigation": {
+                "Projects": {
+                  "detail": {
+                    "route": "ProjectsObjectPage"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "ProjectsObjectPage": {
+          "type": "Component",
+          "id": "ProjectsObjectPage",
+          "name": "sap.fe.templates.ObjectPage",
+          "options": {
+            "settings": {
+              "entitySet": "Projects",
+              "editableHeaderContent": false,
+              "sectionLayout": "Page"
+            }
+          }
+        }
+      }
+    }
+  },
+  "sap.fiori": {
+    "registrationIds": [],
+    "archeType": "transactional"
+  }
+}

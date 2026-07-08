@@ -1,9 +1,8 @@
 const cds = require('@sap/cds')
 const bcrypt = require('bcryptjs')
 const jwt = require('jsonwebtoken')
-const { clearRoleCache, rolesFor } = require('./role-guard')
+const { clearRoleCache, rolesFor, canonicalRole, JWT_SECRET } = require('./role-guard')
 
-const JWT_SECRET = process.env.JWT_SECRET || 'e2e-governance-secret-key-change-in-production'
 const JWT_EXPIRES_IN = '2y'
 const AUTH_MODE = process.env.AUTH_MODE || 'local'
 
@@ -32,9 +31,11 @@ module.exports = class AuthService extends cds.ApplicationService {
     }
     this.before('CREATE', 'Users', async (req) => {
       if (req.data.email) req.data.email = String(req.data.email).toLowerCase()
+      if (req.data.role !== undefined) req.data.role = canonicalRole(req.data.role)
       await hashIncoming(req)
     })
     this.before('UPDATE', 'Users', async (req) => {
+      if (req.data.role !== undefined) req.data.role = canonicalRole(req.data.role)
       await hashIncoming(req)
       await this._guardLastAdmin(req, 'UPDATE')
     })
@@ -151,14 +152,18 @@ module.exports = class AuthService extends cds.ApplicationService {
 
   // Mint the signed app JWT + user summary returned to the browser.
   _issue(user) {
+    // Canonicalize once so the role baked into the token AND the role the browser
+    // stores (sessionStorage 'e2e-user-role' → client Create-button gate) are the
+    // clean enum spelling, regardless of how it was stored in the DB.
+    const role = canonicalRole(user.role)
     const token = jwt.sign(
-      { email: user.email, name: user.name, employeeId: user.employeeId, role: user.role },
+      { email: user.email, name: user.name, employeeId: user.employeeId, role },
       JWT_SECRET,
       { expiresIn: JWT_EXPIRES_IN }
     )
     return {
       token,
-      user: { email: user.email, name: user.name, employeeId: user.employeeId, role: user.role }
+      user: { email: user.email, name: user.name, employeeId: user.employeeId, role }
     }
   }
 

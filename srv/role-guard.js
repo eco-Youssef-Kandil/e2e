@@ -29,12 +29,42 @@
 const cds = require('@sap/cds')
 const jwt = require('jsonwebtoken')
 
-const JWT_SECRET = process.env.JWT_SECRET || 'e2e-governance-secret-key-change-in-production'
 const AUTH_MODE = process.env.AUTH_MODE || 'local'
+const DEV_SECRET = 'e2e-governance-secret-key-change-in-production'
+
+// Resolve the HS256 signing secret. Priority:
+//   1. JWT_SECRET env var (local dev / overrides)
+//   2. the bound 'nadec-e2e-governance-jwt' user-provided service (production) —
+//      the secret lives ONLY there, never in mta.yaml / git.
+//   3. a well-known dev default (local only).
+function resolveJwtSecret() {
+  if (process.env.JWT_SECRET) return process.env.JWT_SECRET
+  try {
+    const xsenv = require('@sap/xsenv')
+    const { jwt } = xsenv.getServices({ jwt: { name: 'nadec-e2e-governance-jwt' } })
+    if (jwt && jwt['jwt-secret']) return jwt['jwt-secret']
+  } catch { /* service not bound (e.g. local dev) → fall through */ }
+  return DEV_SECRET
+}
+const JWT_SECRET = resolveJwtSecret()
+
+// Fail fast: never run production (XSUAA) on the built-in default secret. In that
+// mode a real secret MUST come from the bound service (or JWT_SECRET), not the default.
+if (AUTH_MODE === 'xsuaa' && JWT_SECRET === DEV_SECRET) {
+  throw new Error('[Auth] No production JWT secret found — bind the "nadec-e2e-governance-jwt" service (or set JWT_SECRET). Refusing to start on the development default.')
+}
+
+// Map any stored role value to its canonical enum spelling. Tolerant of casing
+// and stray whitespace so a value like 'manager' / ' Manager ' — however it got
+// into the DB or an old token — never silently downgrades the user to Employee.
+const ROLE_CANON = { admin: 'Admin', manager: 'Manager', employee: 'Employee' }
+function canonicalRole(appRole) {
+  return ROLE_CANON[String(appRole || '').trim().toLowerCase()] || 'Employee'
+}
 
 // Resolve the granted cds-roles for an application role (the small hierarchy).
 function rolesFor(appRole) {
-  switch (appRole) {
+  switch (canonicalRole(appRole)) {
     case 'Admin':   return ['Admin', 'Manager']
     case 'Manager': return ['Manager']
     default:        return ['Employee']
@@ -94,10 +124,11 @@ function clearRoleCache(email) {
 }
 
 function buildUser({ email, name, employeeId, role }) {
+  const canon = canonicalRole(role)
   const user = new cds.User({
     id: email,
-    roles: rolesFor(role),
-    attr: { name, email, employeeId, role }
+    roles: rolesFor(canon),
+    attr: { name, email, employeeId, role: canon }
   })
   return user
 }
@@ -133,7 +164,21 @@ async function guard(req, res, next) {
     if (peekAlg(token) === 'HS256') {
       try {
         const d = jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] })
-        setUser(req, buildUser({ email: d.email, name: d.name, employeeId: d.employeeId, role: d.role }))
+        // Re-resolve the CURRENT role/active from the DB (cached ~5 min) rather
+        // than trusting the role baked into the (2-year) token. This makes an
+        // Admin's role change take effect within ROLE_CACHE_TTL — and lets
+        // clearRoleCache() genuinely revoke — instead of only at token expiry.
+        //   fresh = user object → use live profile
+        //   fresh = null        → row gone or active=false → session revoked
+        //   fresh = undefined   → DB unreachable → fall back to the token payload
+        let fresh
+        try { fresh = await loadUser(d.email) } catch { fresh = undefined }
+        if (fresh === null) {
+          return reject401(res, 'Your access has changed. Please sign in again.')
+        }
+        setUser(req, buildUser(fresh || {
+          email: d.email, name: d.name, employeeId: d.employeeId, role: d.role
+        }))
         return next()
       } catch (e) {
         if (AUTH_MODE !== 'xsuaa') return reject401(res, `Invalid session: ${e.message}`)
@@ -180,3 +225,5 @@ async function guard(req, res, next) {
 module.exports = guard
 module.exports.clearRoleCache = clearRoleCache
 module.exports.rolesFor = rolesFor
+module.exports.canonicalRole = canonicalRole
+module.exports.JWT_SECRET = JWT_SECRET

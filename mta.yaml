@@ -49,10 +49,13 @@ modules:
       - name: nadec-e2e-governance-hdi
       - name: nadec-e2e-governance-uaa
       - name: nadec-e2e-governance-destination
+      - name: nadec-e2e-governance-jwt
     properties:
       NODE_ENV: production
       AUTH_MODE: xsuaa
-      JWT_SECRET: "52bcb2e7d6a0775a2835408601db24e8b74c422f24a338d96ea56fa9ef6761e4"
+      # JWT_SECRET is NO LONGER set here. The signing secret lives only in the bound
+      # 'nadec-e2e-governance-jwt' user-provided service (generated value, created
+      # out-of-band) and is read from VCAP_SERVICES at runtime — never in git.
       SF_DESTINATION_NAME: "SF_PRD_Raw"
 
   # Standalone approuter — XSUAA login (SSO) + static UI5 + OData proxy
@@ -110,3 +113,13 @@ resources:
     parameters:
       service: destination
       service-plan: lite
+
+  # JWT signing secret — a user-provided service holding { "jwt-secret": "<generated>" }.
+  # The value lives ONLY in this service, never in git. Create it once before the
+  # first deploy (and rotate by re-running with a new value):
+  #   cf cups nadec-e2e-governance-jwt -p "{\"jwt-secret\":\"$(openssl rand -hex 32)\"}"
+  #   # rotate later:  cf uups nadec-e2e-governance-jwt -p "{\"jwt-secret\":\"$(openssl rand -hex 32)\"}"
+  - name: nadec-e2e-governance-jwt
+    type: org.cloudfoundry.existing-service
+    parameters:
+      service-name: nadec-e2e-governance-jwt

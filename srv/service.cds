@@ -87,7 +87,7 @@ service GovernanceService @(path: '/governance') {
   ])
   entity HandoverTasks   as projection on my.HandoverTasks;
   @(restrict: [
-    { grant: ['READ', 'CREATE', 'DELETE'], to: 'authenticated-user' }
+    { grant: ['READ', 'CREATE', 'UPDATE', 'DELETE'], to: 'authenticated-user' }
   ])
   entity HandoverReceivers as projection on my.HandoverReceivers;
 

@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NADEC E2E — Users</title>
+
+  <style>
+    html, body { height: 100%; margin: 0; box-sizing: border-box;
+                 font-family: '72','72full',Arial,sans-serif; background: #eaecee; }
+    #adminTopBar {
+      position: fixed; top: 0; left: 0; right: 0; height: 48px; z-index: 1000;
+      display: flex; align-items: center; gap: 12px; padding: 0 16px; box-sizing: border-box;
+      background: linear-gradient(135deg, #0033A0, #002673);
+      color: #fff; box-shadow: 0 2px 4px rgba(0,0,0,0.18); font-size: 13px;
+    }
+    #adminTopBar .ghost {
+      padding: 5px 12px; font-size: 13px; font-weight: 600; color: #fff; cursor: pointer;
+      background: rgba(255,255,255,0.14); border: 1px solid rgba(255,255,255,0.5); border-radius: 6px;
+    }
+    #adminTopBar .title { font-weight: 600; font-size: 15px; letter-spacing: 0.3px; white-space: nowrap; }
+    #adminTopBar .spacer { flex: 1 1 auto; }
+    #adminTopBar .who { opacity: 0.85; white-space: nowrap; }
+    #adminTopBar .signout {
+      padding: 5px 14px; font-size: 13px; font-weight: 600; color: #0033A0; cursor: pointer;
+      background: #fff; border: 1px solid #fff; border-radius: 6px;
+    }
+    #uiArea { padding-top: 48px; height: 100%; box-sizing: border-box; }
+  </style>
+
+  <script>
+    // ---- Admin-only guard -------------------------------------------------
+    // The Users screen is for Admins only. Anyone else is bounced back to the
+    // portal. The server also enforces it (@restrict to 'Admin' → 403).
+    (function () {
+      var token = sessionStorage.getItem("e2e-auth");
+      var role  = sessionStorage.getItem("e2e-user-role");
+      if (!token) { window.location.replace("../../project-portal/webapp/login.html"); return; }
+      if (role !== "Admin") { window.location.replace("../../project-portal/webapp/index.html"); return; }
+    })();
+  </script>
+
+  <script
+    id="sap-ui-bootstrap"
+    src="https://ui5.sap.com/1.145.0/resources/sap-ui-core.js"
+    data-sap-ui-theme="sap_horizon"
+    data-sap-ui-libs="sap.m,sap.ui.core,sap.ui.layout"
+    data-sap-ui-compatVersion="edge"
+    data-sap-ui-async="true"
+    data-sap-ui-frameOptions="trusted">
+  </script>
+
+  <script>
+    var ROLES = [
+      { key: "Employee", text: "Employee — read all, edit own projects" },
+      { key: "Manager",  text: "Manager — full edit + reassign IT Owner" },
+      { key: "Admin",    text: "Admin — everything + manage users" }
+    ];
+
+    sap.ui.getCore().attachInit(function () {
+      sap.ui.require([
+        "sap/ui/model/odata/v4/ODataModel",
+        "sap/ui/model/Filter",
+        "sap/ui/model/FilterOperator",
+        "sap/ui/model/Sorter",
+        "sap/m/MessageToast",
+        "sap/m/MessageBox",
+        "sap/m/Button",
+        "sap/m/Input",
+        "sap/m/Label",
+        "sap/m/Title",
+        "sap/m/Text",
+        "sap/m/Select",
+        "sap/ui/core/Item",
+        "sap/m/Switch",
+        "sap/m/ObjectStatus",
+        "sap/m/SearchField",
+        "sap/m/Table",
+        "sap/m/Column",
+        "sap/m/ColumnListItem",
+        "sap/m/OverflowToolbar",
+        "sap/m/ToolbarSpacer",
+        "sap/m/Page",
+        "sap/m/Dialog",
+        "sap/ui/layout/form/SimpleForm"
+      ], function (ODataModel, Filter, FilterOperator, Sorter, MessageToast, MessageBox,
+                   Button, Input, Label, Title, Text, Select, Item, Switch, ObjectStatus,
+                   SearchField, Table, Column, ColumnListItem, OverflowToolbar, ToolbarSpacer,
+                   Page, Dialog, SimpleForm) {
+        "use strict";
+
+        var myEmail = (sessionStorage.getItem("e2e-user-email") || "").toLowerCase();
+
+        // ---- Brand top bar ------------------------------------------------
+        var userName = sessionStorage.getItem("e2e-user-name") || "";
+        var userRole = sessionStorage.getItem("e2e-user-role") || "";
+        var bar = document.createElement("div");
+        bar.id = "adminTopBar";
+        bar.innerHTML =
+          '<button class="ghost" id="backBtn">← Portal</button>' +
+          '<span class="title">Users &amp; Roles</span>' +
+          '<div class="spacer"></div>' +
+          '<span class="who">' + userName + (userRole ? " · " + userRole : "") + '</span>' +
+          '<button class="signout" id="signoutBtn">Sign out</button>';
+        document.body.appendChild(bar);
+        document.getElementById("backBtn").onclick = function () {
+          window.location.href = "../../project-portal/webapp/index.html";
+        };
+        document.getElementById("signoutBtn").onclick = function () {
+          sessionStorage.clear();
+          window.location.replace("../../project-portal/webapp/login.html");
+        };
+
+        // ---- OData V4 model against AuthService, with the Bearer token -----
+        var oModel = new ODataModel({
+          serviceUrl: "/auth/",
+          synchronizationMode: "None",
+          operationMode: "Server",
+          autoExpandSelect: true,
+          groupId: "$auto",
+          updateGroupId: "$auto",
+          httpHeaders: { Authorization: sessionStorage.getItem("e2e-auth") }
+        });
+
+        function msg(err) {
+          if (!err) { return "unknown error"; }
+          if (err.error && err.error.message) { return err.error.message; }
+          return err.message || String(err);
+        }
+
+        var oBinding = null;
+        var oCount = new ObjectStatus({ text: "", state: "Information" });
+
+        function refreshCount() {
+          if (!oBinding) { return; }
+          var len = oBinding.getLength();
+          try {
+            var hc = oBinding.getHeaderContext();
+            var c = hc && hc.getProperty("$count");
+            if (typeof c === "number") { len = c; }
+          } catch (e) { /* fall back */ }
+          oCount.setText(len + (len === 1 ? " user" : " users"));
+        }
+
+        function roleSelect(bindProp) {
+          var sel = new Select({ width: "13rem", selectedKey: bindProp, change: saveRow });
+          ROLES.forEach(function (r) { sel.addItem(new Item({ key: r.key, text: r.key })); });
+          return sel;
+        }
+
+        // Inline autosave (name / employeeId / role / active).
+        function saveRow() {
+          oModel.submitBatch("$auto").then(function () {
+            MessageToast.show("Saved", { duration: 900 });
+          }).catch(function (err) {
+            MessageBox.error("Could not save: " + msg(err));
+            oModel.resetChanges("$auto");
+          });
+        }
+
+        function resetPassword(ctx) {
+          var email = ctx.getProperty("email");
+          var inPwd = new Input({ type: "Password", placeholder: "New password", width: "100%" });
+          var dlg = new Dialog({
+            title: "Reset password — " + email,
+            contentWidth: "22rem",
+            content: [ new SimpleForm({ editable: true, content: [ new Label({ text: "New password" }), inPwd ] }) ],
+            beginButton: new Button({
+              text: "Set password", type: "Emphasized",
+              press: function () {
+                var pwd = inPwd.getValue();
+                if (!pwd) { inPwd.setValueState("Error").setValueStateText("Required"); return; }
+                ctx.setProperty("password", pwd);
+                oModel.submitBatch("$auto").then(function () {
+                  MessageToast.show("Password updated");
+                }).catch(function (err) { MessageBox.error("Could not update: " + msg(err)); });
+                dlg.close();
+              }
+            }),
+            endButton: new Button({ text: "Cancel", press: function () { dlg.close(); } }),
+            afterClose: function () { dlg.destroy(); }
+          });
+          dlg.open();
+        }
+
+        function deleteUser(ctx) {
+          var email = ctx.getProperty("email");
+          var name = ctx.getProperty("name") || email;
+          if (email && email.toLowerCase() === myEmail) {
+            MessageBox.warning("You cannot delete your own account while signed in.");
+            return;
+          }
+          MessageBox.confirm(
+            "Delete user “" + name + "” (" + email + ")?",
+            {
+              title: "Delete user",
+              emphasizedAction: MessageBox.Action.OK,
+              onClose: function (a) {
+                if (a !== MessageBox.Action.OK) { return; }
+                ctx.delete().then(function () {
+                  MessageToast.show("Deleted");
+                  refreshCount();
+                }).catch(function (err) { MessageBox.error("Could not delete: " + msg(err)); });
+              }
+            }
+          );
+        }
+
+        function rowTemplate() {
+          return new ColumnListItem({
+            cells: [
+              new Text({ text: "{email}" }),
+              new Input({ value: "{name}", placeholder: "Full name", change: saveRow }),
+              new Input({ value: "{employeeId}", placeholder: "SF ID", width: "8rem", change: saveRow }),
+              roleSelect("{role}"),
+              new Switch({ state: "{active}", customTextOn: "Yes", customTextOff: "No", change: saveRow }),
+              new OverflowToolbar({ content: [
+                new Button({ icon: "sap-icon://key", tooltip: "Reset password", type: "Transparent",
+                  press: function (e) { resetPassword(e.getSource().getBindingContext()); } }),
+                new Button({ icon: "sap-icon://delete", tooltip: "Delete user", type: "Transparent",
+                  press: function (e) { deleteUser(e.getSource().getBindingContext()); } })
+              ] })
+            ]
+          });
+        }
+
+        var oTable = new Table({
+          inset: false,
+          growing: true,
+          growingThreshold: 200,
+          fixedLayout: false,
+          noData: "No users yet.",
+          columns: [
+            new Column({ width: "18rem", header: new Label({ text: "Email (login)" }) }),
+            new Column({ header: new Label({ text: "Full name" }) }),
+            new Column({ width: "9rem", header: new Label({ text: "SF Employee ID" }) }),
+            new Column({ width: "14rem", header: new Label({ text: "Role" }) }),
+            new Column({ width: "6rem", hAlign: "Center", header: new Label({ text: "Active" }) }),
+            new Column({ width: "8rem", hAlign: "Right", header: new Label({ text: "" }) })
+          ]
+        });
+        oTable.setModel(oModel);
+        oTable.bindItems({
+          path: "/Users",
+          parameters: { $$updateGroupId: "$auto", $count: true },
+          sorter: [ new Sorter("name", false) ],
+          template: rowTemplate()
+        });
+        oBinding = oTable.getBinding("items");
+        if (oBinding) { oBinding.attachDataReceived(refreshCount); }
+
+        function addUser() {
+          var inEmail = new Input({ placeholder: "e.g. 80464@nadec.com.sa", width: "100%" });
+          var inName  = new Input({ placeholder: "Full name (must match IT Owner list)", width: "100%" });
+          var inEmp   = new Input({ placeholder: "SuccessFactors employee ID", width: "100%" });
+          var inRole  = new Select({ width: "100%", selectedKey: "Employee" });
+          ROLES.forEach(function (r) { inRole.addItem(new Item({ key: r.key, text: r.text })); });
+          var inPwd   = new Input({ type: "Password", placeholder: "Initial password", width: "100%" });
+
+          var dlg = new Dialog({
+            title: "Add user",
+            contentWidth: "30rem",
+            content: [ new SimpleForm({ editable: true, layout: "ResponsiveGridLayout", content: [
+              new Label({ text: "Email (login)" }), inEmail,
+              new Label({ text: "Full name" }), inName,
+              new Label({ text: "Employee ID" }), inEmp,
+              new Label({ text: "Role" }), inRole,
+              new Label({ text: "Password" }), inPwd
+            ] }) ],
+            beginButton: new Button({
+              text: "Create", type: "Emphasized",
+              press: function () {
+                var email = (inEmail.getValue() || "").trim().toLowerCase();
+                var name  = (inName.getValue() || "").trim();
+                var pwd   = inPwd.getValue() || "";
+                var okEmail = /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email);
+                if (!okEmail) { inEmail.setValueState("Error").setValueStateText("Enter a valid email"); return; }
+                if (!name) { inName.setValueState("Error").setValueStateText("Required"); return; }
+                if (!pwd) { inPwd.setValueState("Error").setValueStateText("Set an initial password"); return; }
+                oBinding.create({
+                  email: email, name: name,
+                  employeeId: (inEmp.getValue() || "").trim(),
+                  role: inRole.getSelectedKey(),
+                  password: pwd, active: true
+                }, false, true);
+                oModel.submitBatch("$auto").then(function () {
+                  MessageToast.show("Added “" + name + "”");
+                  refreshCount();
+                }).catch(function (err) {
+                  MessageBox.error("Could not add: " + msg(err));
+                  oModel.resetChanges("$auto");
+                });
+                dlg.close();
+              }
+            }),
+            endButton: new Button({ text: "Cancel", press: function () { dlg.close(); } }),
+            afterClose: function () { dlg.destroy(); }
+          });
+          dlg.open();
+        }
+
+        var oPage = new Page({
+          showHeader: true,
+          customHeader: new OverflowToolbar({ content: [
+            new Title({ text: "Users & Roles", level: "H3" }),
+            oCount,
+            new ToolbarSpacer(),
+            new SearchField({ width: "18rem", placeholder: "Filter users…", liveChange: function (e) {
+              var q = (e.getParameter("newValue") || "").trim();
+              if (!oBinding) { return; }
+              oBinding.filter(q ? [ new Filter({ filters: [
+                new Filter("email", FilterOperator.Contains, q),
+                new Filter("name", FilterOperator.Contains, q),
+                new Filter("employeeId", FilterOperator.Contains, q),
+                new Filter("role", FilterOperator.Contains, q)
+              ], and: false }) ] : []);
+            } }),
+            new Button({ text: "Add user", icon: "sap-icon://add", type: "Emphasized", press: addUser })
+          ] }),
+          content: [ oTable ]
+        });
+
+        var uiArea = document.createElement("div");
+        uiArea.id = "uiArea";
+        document.body.appendChild(uiArea);
+        oPage.placeAt("uiArea");
+      });
+    });
+  </script>
+</head>
+<body class="sapUiBody"><script src="/shared/nav.js"></script></body>
+</html>
