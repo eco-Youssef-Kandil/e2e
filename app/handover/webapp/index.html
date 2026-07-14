@@ -147,15 +147,24 @@
     .planDelBtn.armed { background: var(--red); border-color: var(--red); color: #fff; }
     .completeBtn { background: var(--green); margin-left: 16px; align-self: center; }
     .completeBtn:hover { background: #1b5e20; }
+
+    /* Required custom fields left empty */
+    .cf-missing { border-color: var(--red) !important; background: #fff5f5 !important; }
+    #reqBanner { display: none; }
+    .reqBanner {
+      background: #fff5f5; border: 1px solid #f0c4c4; border-left: 4px solid var(--red);
+      color: #8a2a2a; border-radius: 12px; padding: 13px 18px; margin-bottom: 18px; font-size: 13px;
+    }
+    .reqBanner strong { color: var(--red); }
+    .reqBanner ul { margin: 8px 0 0; padding-left: 20px; }
+    .reqBanner li { margin: 2px 0; }
+    .noteBtn.hasMissing::after {
+      content: ""; position: absolute; top: 3px; right: 2px; width: 7px; height: 7px;
+      border-radius: 50%; background: var(--red);
+    }
+
     #loading, #error { margin-top: 100px; text-align: center; color: var(--muted); font-size: 15px; }
     #error { color: var(--red); display: none; }
-
-    /* Receiver chips */
-    .receiverField { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 4px 0; }
-    .receiverChip { display: inline-flex; align-items: center; gap: 5px; background: #eaf1fb; color: var(--nadec-blue); font-size: 12px; font-weight: 600; padding: 4px 10px 4px 10px; border-radius: 999px; border: 1px solid #c5d8f0; }
-    .removeReceiver { background: none; border: none; cursor: pointer; color: var(--nadec-blue); font-size: 14px; line-height: 1; padding: 0 2px; opacity: 0.6; }
-    .removeReceiver:hover { opacity: 1; color: var(--red); }
-    .addReceiverSel { padding: 4px 10px; font-size: 12.5px; border: 1px dashed var(--nadec-blue); border-radius: 999px; background: #f6f9ff; color: var(--nadec-blue); font-family: inherit; cursor: pointer; }
   </style>
 
   <script>
@@ -200,7 +209,22 @@
         .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
     }
 
-    var PHASES = ["Preparation", "Documentation", "Knowledge Transfer", "Access & Setup", "Hypercare", "Sign-off"];
+    // Phases are manager-configurable — loaded from the server. PHASES holds the
+    // ordered phase keys (what tasks store in .phase); PHASE_NAME maps key→label.
+    var PHASE_DEFS = [], PHASES = [], PHASE_NAME = {};
+    function phaseName(id) { return PHASE_NAME[id] || id || "(No phase)"; }
+
+    // Manager-defined custom fields + built-in field visibility.
+    var PLAN_DEFS = [], TASK_DEFS = [], HIDDEN = {};
+    function isHidden(target, field) { return !!HIDDEN[target + "|" + field]; }
+
+    // Custom-field values, indexed by def_ID + "|" + recordKey.
+    var CF_VALUES = {};
+    function cfVal(defID, recordKey) {
+      var v = CF_VALUES[defID + "|" + recordKey];
+      return v === undefined || v === null ? "" : v;
+    }
+
     var STATUS_COLORS = {
       "Completed": "#2e7d32", "In Progress": "#e58c00", "Blocked": "#c62828",
       "Partially Defined": "#f2b950", "Missing Input": "#9aa8b5",
@@ -209,65 +233,32 @@
     function colorOf(code) { return STATUS_COLORS[code] || "#9aa8b5"; }
 
     // ---- OData helpers ---------------------------------------------------------
-    // The approuter protects /governance with CSRF (csrfProtection: true), so every
-    // write (POST/PATCH/DELETE) MUST carry an X-CSRF-Token fetched via a GET. We
-    // cache the token and refetch+retry once if it expires (approuter answers a
-    // stale token with 403 + "x-csrf-token: Required").
-    var CSRF_TOKEN = null;
-    function fetchCsrf() {
-      return fetch("/governance/", {
-        method: "GET",
-        headers: { Authorization: AUTH, "x-csrf-token": "fetch" }
-      }).then(function (r) {
-        CSRF_TOKEN = r.headers.get("x-csrf-token") || r.headers.get("X-CSRF-Token") || null;
-        return CSRF_TOKEN;
-      });
-    }
-
     function odata(path, opts) {
       opts = opts || {};
-      var method = opts.method || "GET";
-      var isWrite = method !== "GET" && method !== "HEAD";
-
-      function send(retriedForCsrf) {
-        var headers = { Authorization: AUTH };
-        if (opts.body) { headers["Content-Type"] = "application/json"; }
-        if (isWrite && CSRF_TOKEN) { headers["x-csrf-token"] = CSRF_TOKEN; }
-        return fetch("/governance/" + path, {
-          method: method,
-          headers: headers,
-          body: opts.body ? JSON.stringify(opts.body) : undefined
-        }).then(function (r) {
-          if (r.status === 401) {
-            sessionStorage.removeItem("e2e-auth");
-            window.location.replace("../../project-portal/webapp/login.html");
-            throw new Error("Not authorized");
-          }
-          // Stale/absent CSRF token → the approuter rejects with 403 and asks us to
-          // fetch a fresh one. Refetch and retry the write exactly once.
-          if (r.status === 403 && isWrite && !retriedForCsrf &&
-              /required|fetch/i.test(r.headers.get("x-csrf-token") || "")) {
-            return fetchCsrf().then(function () { return send(true); });
-          }
-          if (!r.ok) {
-            return r.text().then(function (t) {
-              var msg = "Request failed: " + r.status;
-              try { var j = JSON.parse(t); if (j.error && j.error.message) { msg = j.error.message; } } catch (e) {}
-              var err = new Error(msg);
-              err.status = r.status;
-              throw err;
-            });
-          }
-          if (r.status === 204) { return null; }
-          return r.json();
-        });
-      }
-
-      // For writes, make sure we have a token before the first attempt.
-      if (isWrite && !CSRF_TOKEN) {
-        return fetchCsrf().then(function () { return send(false); });
-      }
-      return send(false);
+      var headers = { Authorization: AUTH };
+      if (opts.body) { headers["Content-Type"] = "application/json"; }
+      return fetch("/governance/" + path, {
+        method: opts.method || "GET",
+        headers: headers,
+        body: opts.body ? JSON.stringify(opts.body) : undefined
+      }).then(function (r) {
+        if (r.status === 401) {
+          sessionStorage.removeItem("e2e-auth");
+          window.location.replace("../../project-portal/webapp/login.html");
+          throw new Error("Not authorized");
+        }
+        if (!r.ok) {
+          return r.text().then(function (t) {
+            var msg = "Request failed: " + r.status;
+            try { var j = JSON.parse(t); if (j.error && j.error.message) { msg = j.error.message; } } catch (e) {}
+            var err = new Error(msg);
+            err.status = r.status;
+            throw err;
+          });
+        }
+        if (r.status === 204) { return null; }
+        return r.json();
+      });
     }
 
     function showSaved() {
@@ -289,7 +280,10 @@
       odata("Projects?$select=ID,name&$filter=IsActiveEntity eq true&$orderby=ID&$top=5000"),
       odata("Employees?$orderby=sort,name&$top=5000"),
       odata("StageStatuses?$orderby=sort&$top=100"),
-      odata("HandoverPlans?$select=project_ID&$top=5000")
+      odata("HandoverPlans?$select=project_ID&$top=5000"),
+      odata("HandoverPhases?$select=ID,name,description&$filter=active eq true&$orderby=sort&$top=200"),
+      odata("CustomFieldDefs?$filter=active eq true and (target eq 'HandoverPlan' or target eq 'HandoverTask')&$orderby=sort&$top=500"),
+      odata("FieldVisibility?$filter=hidden eq true&$top=500")
     ]).then(function (res) {
       PROJECTS = res[0].value || [];
       EMPLOYEES = res[1].value || [];
@@ -297,6 +291,21 @@
       var withPlans = {};
       (res[3].value || []).forEach(function (p) { withPlans[p.project_ID] = true; });
       PROJECTS.forEach(function (p) { p.hasPlan = !!withPlans[p.ID]; });
+
+      // Phase configuration (fall back to nothing → phases derive from tasks).
+      PHASE_DEFS = res[4].value || [];
+      PHASES = PHASE_DEFS.map(function (d) { return d.ID; });
+      PHASE_NAME = {};
+      PHASE_DEFS.forEach(function (d) { PHASE_NAME[d.ID] = d.name || d.ID; });
+
+      // Custom field definitions, split by target.
+      var defs = res[5].value || [];
+      PLAN_DEFS = defs.filter(function (d) { return d.target === "HandoverPlan"; });
+      TASK_DEFS = defs.filter(function (d) { return d.target === "HandoverTask"; });
+
+      // Built-in field visibility.
+      HIDDEN = {};
+      (res[6].value || []).forEach(function (v) { HIDDEN[v.target + "|" + v.field] = !!v.hidden; });
 
       document.getElementById("loading").style.display = "none";
       document.getElementById("content").style.display = "";
@@ -340,14 +349,134 @@
         encodeURIComponent(String(currentProject).replace(/'/g, "''")) + "')";
     }
 
+    // Load all custom-field values for this plan (recordKey = project) and its
+    // tasks (recordKey = task ID) in one filtered request.
+    function loadCustomValues() {
+      CF_VALUES = {};
+      if (!PLAN_DEFS.length && !TASK_DEFS.length) { return Promise.resolve(); }
+      var keys = [String(currentProject)].concat(TASKS.map(function (t) { return t.ID; }));
+      if (!keys.length) { return Promise.resolve(); }
+      var filter = keys.map(function (k) {
+        return "recordKey eq '" + String(k).replace(/'/g, "''") + "'";
+      }).join(" or ");
+      return odata("CustomFieldValues?$select=def_ID,recordKey,value&$filter=" +
+        encodeURIComponent(filter) + "&$top=5000")
+        .then(function (res) {
+          (res.value || []).forEach(function (v) {
+            CF_VALUES[v.def_ID + "|" + v.recordKey] = v.value;
+          });
+        })
+        .catch(function () { /* non-fatal — fields just render empty */ });
+    }
+
+    // Render one custom-field editor control (returns HTML string). ctxLabel is an
+    // optional human-readable record label used in the "required fields" prompt.
+    function cfControl(def, recordKey, ctxLabel) {
+      var v = cfVal(def.ID, recordKey);
+      var missing = def.required && String(v).trim() === "";
+      var attrs = 'data-cf="' + esc(def.ID) + '" data-cf-rec="' + esc(recordKey) + '"' +
+        (def.required ? ' data-cf-req="1" data-cf-label="' +
+          esc((ctxLabel ? ctxLabel + " → " : "") + def.label) + '"' : "") +
+        (missing ? ' class="cf-missing"' : "");
+      switch (def.fieldType) {
+        case "textarea":
+          return '<textarea ' + attrs + ' maxlength="2000" placeholder="…">' + esc(v) + "</textarea>";
+        case "number":
+          return '<input type="number" step="any" ' + attrs + ' value="' + esc(v) + '">';
+        case "date":
+          return '<input type="date" ' + attrs + ' value="' + esc(v) + '">';
+        case "boolean":
+          return '<select ' + attrs + '><option value=""' + (v === "" ? " selected" : "") + ">—</option>" +
+            '<option value="true"' + (v === "true" ? " selected" : "") + ">Yes</option>" +
+            '<option value="false"' + (v === "false" ? " selected" : "") + ">No</option></select>";
+        case "select": {
+          var opts = String(def.options || "").split(/\r?\n/)
+            .map(function (s) { return s.trim(); }).filter(Boolean);
+          return '<select ' + attrs + '><option value=""' + (v === "" ? " selected" : "") + ">—</option>" +
+            opts.map(function (o) {
+              return '<option value="' + esc(o) + '"' + (o === v ? " selected" : "") + ">" + esc(o) + "</option>";
+            }).join("") + "</select>";
+        }
+        default:
+          return '<input type="text" ' + attrs + ' maxlength="2000" value="' + esc(v) + '">';
+      }
+    }
+
+    // Custom-field label with a "required" marker when applicable.
+    function cfLabel(def) { return esc(def.label) + (def.required ? " *" : ""); }
+
+    // Wire change handlers for every custom-field control inside a container.
+    function wireCustomFields(area) {
+      Array.prototype.slice.call(area.querySelectorAll("[data-cf]")).forEach(function (el) {
+        el.onchange = function () {
+          var defID = el.getAttribute("data-cf");
+          var rec = el.getAttribute("data-cf-rec");
+          var val = el.value;
+          el.disabled = true;
+          odata("saveCustomFieldValue", { method: "POST", body: {
+            def_ID: defID, recordKey: rec, value: val === "" ? null : val
+          }})
+            .then(function () { CF_VALUES[defID + "|" + rec] = val; showSaved(); })
+            .catch(showError)
+            .then(function () { el.disabled = false; updateRequiredHint(); });
+        };
+      });
+    }
+
+    // Collect the labels of every empty required custom field (plan + tasks) and,
+    // as a side effect, toggle the .cf-missing marker on each input. Returns the
+    // list of missing labels plus the set of task rows that still have gaps, so
+    // both the banner and the completion confirmation can reuse the same source.
+    function collectMissingRequired() {
+      var missing = [];
+      var missingTasks = {};
+      Array.prototype.slice.call(document.querySelectorAll('[data-cf-req="1"]')).forEach(function (el) {
+        var empty = (el.value == null ? "" : String(el.value)).trim() === "";
+        el.classList.toggle("cf-missing", empty);
+        if (empty) {
+          missing.push(el.getAttribute("data-cf-label") || "Required field");
+          var noteRow = el.closest("tr[data-notesrow]");
+          if (noteRow) { missingTasks[noteRow.getAttribute("data-notesrow")] = true; }
+        }
+      });
+      return { missing: missing, missingTasks: missingTasks };
+    }
+
+    // Flag empty required custom fields (plan + tasks) and surface a non-blocking
+    // banner listing them. Runs after every render and after each inline save.
+    function updateRequiredHint() {
+      var result = collectMissingRequired();
+      var missing = result.missing;
+      var missingTasks = result.missingTasks;
+      // Mark the note toggle of any task whose required field is still empty, so
+      // the missing field is discoverable even while its notes row is collapsed.
+      Array.prototype.slice.call(document.querySelectorAll("[data-notes]")).forEach(function (btn) {
+        btn.classList.toggle("hasMissing", !!missingTasks[btn.getAttribute("data-notes")]);
+      });
+
+      var banner = document.getElementById("reqBanner");
+      if (!banner) { return; }
+      if (!missing.length) { banner.style.display = "none"; banner.innerHTML = ""; return; }
+      banner.className = "reqBanner";
+      banner.style.display = "block";
+      banner.innerHTML =
+        "<strong>" + missing.length + " required field" + (missing.length === 1 ? "" : "s") +
+        " still need" + (missing.length === 1 ? "s" : "") + " a value.</strong> " +
+        "This plan can't be considered complete until you fill in:" +
+        "<ul>" + missing.map(function (m) { return "<li>" + esc(m) + "</li>"; }).join("") + "</ul>";
+    }
+
     function loadPlan() {
       var area = document.getElementById("planArea");
       area.innerHTML = '<div class="card" style="text-align:center;color:var(--muted)">Loading plan…</div>';
-      odata(planKey() + "?$expand=tasks($orderby=sort,createdAt),toOwners")
+      odata(planKey() + "?$expand=tasks($orderby=sort,createdAt)")
         .then(function (plan) {
           PLAN = plan;
           TASKS = plan.tasks || [];
-          renderPlan();
+          return loadCustomValues();
+        })
+        .then(function () {
+          if (PLAN) { renderPlan(); }
         })
         .catch(function (err) {
           if (err && err.status === 404) { PLAN = null; TASKS = []; renderNoPlan(); }
@@ -364,8 +493,9 @@
       document.getElementById("planArea").innerHTML =
         '<div class="card"><div id="emptyState">' +
         "<h2>No handover plan yet for " + esc(p.ID + " — " + (p.name || "")) + "</h2>" +
-        "<p>Create one from the standard handover journey: Preparation → Documentation → " +
-        "Knowledge Transfer → Access &amp; Setup → Hypercare → Sign-off (15 template tasks).</p>" +
+        "<p>Create one from the standard handover journey" +
+        (PHASE_DEFS.length ? ": " + PHASE_DEFS.map(function (d) { return esc(d.name || d.ID); }).join(" → ") : "") +
+        ".</p>" +
         '<button class="primary" id="createPlanBtn">Create handover plan</button>' +
         "</div></div>";
       document.getElementById("createPlanBtn").onclick = function () {
@@ -397,24 +527,6 @@
 
     function taskDone(t) { return t.status_code === "Completed" || t.status_code === "Not Applicable"; }
 
-    function receiverChipsHtml() {
-      var existing = (PLAN.toOwners || []).map(function (r) { return r.employee_code; });
-      var chips = (PLAN.toOwners || []).map(function (r) {
-        var emp = EMPLOYEES.find(function (e) { return e.code === r.employee_code; });
-        var name = emp ? (emp.name || emp.code) : (r.employee_code || "");
-        return '<span class="receiverChip">' + esc(name) +
-          '<button type="button" class="removeReceiver" data-receiver-id="' + esc(r.ID) + '">\u00d7</button></span>';
-      }).join("");
-      var available = EMPLOYEES.filter(function (e) { return existing.indexOf(e.code) < 0; });
-      var addSel = '<select class="addReceiverSel" data-nosearch>' +
-        '<option value="">' + (existing.length ? '\u002b Add receiver\u2026' : '\u002b Add receiver\u2026') + '</option>' +
-        available.map(function (e) {
-          return '<option value="' + esc(e.code) + '">' + esc(e.name || e.code) + '</option>';
-        }).join("") + '</select>';
-      return '<div class="fld"><label>Receiving (support)</label>' +
-        '<div class="receiverField">' + chips + addSel + '</div></div>';
-    }
-
     // Unknown/custom phases sort after the standard journey (never before it).
     function phaseIdx(ph) {
       var i = PHASES.indexOf(ph);
@@ -432,9 +544,28 @@
 
     function renderPlan() {
       document.getElementById("planArea").innerHTML =
-        '<div id="summaryArea"></div><div id="tableArea"></div>';
+        '<div id="reqBanner"></div><div id="summaryArea"></div><div id="tableArea"></div>';
       renderSummary();
       renderTable();
+    }
+
+    // Empty state shown when a manager has removed/hidden every handover phase.
+    // The journey, stepper and task table are all driven by the phase list, so
+    // point people to Manage Lists to re-add a phase.
+    function noPhasesHtml() {
+      var isManager = ["Manager", "Admin"].indexOf(sessionStorage.getItem("e2e-user-role")) >= 0;
+      return '<div style="text-align:center;padding:34px 20px;color:var(--muted)">' +
+        '<div style="font-size:34px;margin-bottom:8px">🧭</div>' +
+        '<h3 style="color:var(--ink);font-size:16px;margin:0 0 6px">No handover phases yet</h3>' +
+        '<p style="font-size:13px;margin:0 auto 16px;max-width:470px">The handover journey and tasks are built from the list of phases. ' +
+        (isManager
+          ? 'Add at least one phase in <b>Manage Lists → Handover Phases</b> to bring the journey and tasks back.'
+          : 'Ask a manager to add at least one phase in <b>Manage Lists → Handover Phases</b> to bring the journey and tasks back.') +
+        "</p>" +
+        (isManager
+          ? '<a class="primary" href="/admin-lists/webapp/index.html" style="text-decoration:none;display:inline-block">Open Manage Lists</a>'
+          : "") +
+        "</div>";
     }
 
     function renderSummary() {
@@ -465,25 +596,34 @@
           return da < db ? -1 : da > db ? 1 : 0;
         });
 
-      var isManager = sessionStorage.getItem("e2e-user-role") === "Manager";
+      var isManager = ["Manager", "Admin"].indexOf(sessionStorage.getItem("e2e-user-role")) >= 0;
       var canComplete = pct === 100 && countable.length > 0 && PLAN.status_code !== "Completed";
+
+      // Built-in plan fields, each shown only when not hidden by the manager.
+      var planFields =
+        (isHidden("HandoverPlan", "status") ? "" : fld("Plan status", '<select data-plan="status_code">' + statusOptions(PLAN.status_code) + "</select>")) +
+        (isHidden("HandoverPlan", "targetDate") ? "" : fld("Target handover date", '<input type="date" data-plan="targetDate" value="' + esc(PLAN.targetDate || "") + '">')) +
+        (isHidden("HandoverPlan", "actualDate") ? "" : fld("Actual handover date", '<input type="date" data-plan="actualDate" value="' + esc(PLAN.actualDate || "") + '">')) +
+        (isHidden("HandoverPlan", "fromOwner") ? "" : fld("Handing over (delivery)", '<select data-plan="fromOwner_code">' + employeeOptions(PLAN.fromOwner_code) + "</select>")) +
+        (isHidden("HandoverPlan", "toOwner") ? "" : fld("Receiving (support)", '<select data-plan="toOwner_code">' + employeeOptions(PLAN.toOwner_code) + "</select>")) +
+        // Manager-defined plan custom fields (recordKey = project).
+        PLAN_DEFS.map(function (d) {
+          var span = (d.fieldType === "textarea") ? ' style="grid-column:1/-1"' : "";
+          return '<div class="fld"' + span + "><label>" + cfLabel(d) + "</label>" + cfControl(d, String(currentProject), "Plan") + "</div>";
+        }).join("") +
+        (isHidden("HandoverPlan", "notes") ? "" :
+          '<div class="fld" style="grid-column:1/-1"><label>Plan notes</label>' +
+          '<textarea data-plan="notes" maxlength="1000" placeholder="Overall notes for this handover…">' + esc(PLAN.notes || "") + "</textarea></div>");
 
       var html =
         // ---- Plan header ----
         '<div class="card">' +
         '<div class="rowFlex"><h2 style="margin:0">Handover plan — ' + esc(p.ID + " — " + (p.name || "")) + "</h2>" +
         '<span id="saveHint">Saved ✓</span>' +
-        (isManager ? '<button class="planDelBtn" id="delPlanBtn" title="Delete this handover plan and all its tasks">Delete plan</button>' : "") +
+        (isManager ? '<button class="addBtn" id="applyTmplBtn" style="margin-left:auto" title="Add any new template tasks that are missing from this plan (never deletes existing tasks)">↻ Apply latest template</button>' : "") +
+        (isManager ? '<button class="planDelBtn" id="delPlanBtn" style="margin-left:0" title="Delete this handover plan and all its tasks">Delete plan</button>' : "") +
         "</div>" +
-        '<div class="fieldGrid">' +
-        fld("Plan status", '<select data-plan="status_code">' + statusOptions(PLAN.status_code) + "</select>") +
-        fld("Target handover date", '<input type="date" data-plan="targetDate" value="' + esc(PLAN.targetDate || "") + '">') +
-        fld("Actual handover date", '<input type="date" data-plan="actualDate" value="' + esc(PLAN.actualDate || "") + '">') +
-        fld("Handing over (delivery)", '<select data-plan="fromOwner_code">' + employeeOptions(PLAN.fromOwner_code) + "</select>") +
-        receiverChipsHtml() +
-        '<div class="fld" style="grid-column:1/-1"><label>Plan notes</label>' +
-        '<textarea data-plan="notes" maxlength="1000" placeholder="Overall notes for this handover…">' + esc(PLAN.notes || "") + "</textarea></div>" +
-        "</div>" +
+        '<div class="fieldGrid">' + planFields + "</div>" +
         '<div class="pboxRow"><div class="pbox">' +
         '<div class="plabel">Handover progress (' + done + " of " + countable.length + " tasks)</div>" +
         '<div class="pmeter"><span style="width:' + pct + "%;background:" +
@@ -494,64 +634,103 @@
         "</div>" +
 
         // ---- Journey stepper ----
-        '<div class="card"><h2>Handover journey</h2><div id="stepper">' +
-        phaseAgg.map(function (a, i) {
-          var color = a.state === "done" ? "#2e7d32" : a.state === "blocked" ? "#c62828" :
-                      a.state === "active" ? "#e58c00" : "#9aa8b5";
-          return '<div class="step' + (i === curIdx ? " current" : "") + '">' +
-            (i === curIdx ? '<span class="cur">Current</span>' : "") +
-            '<span class="num" style="background:' + color + '">' + (i + 1) + "</span>" +
-            "<h4>" + esc(a.phase) + "</h4>" +
-            '<div class="cnt">' + a.done + " / " + a.total + " tasks done</div></div>";
-        }).join("") +
-        "</div></div>" +
+        '<div class="card"><h2>Handover journey</h2>' +
+        (PHASES.length === 0
+          ? noPhasesHtml()
+          : '<div id="stepper">' +
+            phaseAgg.map(function (a, i) {
+              var color = a.state === "done" ? "#2e7d32" : a.state === "blocked" ? "#c62828" :
+                          a.state === "active" ? "#e58c00" : "#9aa8b5";
+              return '<div class="step' + (i === curIdx ? " current" : "") + '">' +
+                (i === curIdx ? '<span class="cur">Current</span>' : "") +
+                '<span class="num" style="background:' + color + '">' + (i + 1) + "</span>" +
+                "<h4>" + esc(phaseName(a.phase)) + "</h4>" +
+                '<div class="cnt">' + a.done + " / " + a.total + " tasks done</div></div>";
+            }).join("") +
+            "</div>") +
+        "</div>" +
 
-        // ---- Current tasks ----
-        '<div class="card"><h2>Current tasks (' + openTasks.length + " open)</h2>" +
-        (openTasks.length
-          ? '<table><thead><tr><th>Task</th><th>Phase</th><th>Owner</th><th>Due date</th><th>Status</th></tr></thead><tbody>' +
-            openTasks.map(function (t) {
-              var over = t.dueDate && t.dueDate < today;
-              return "<tr><td>" + esc(t.title) + "</td><td>" + esc(t.phase) + "</td>" +
-                "<td>" + esc((EMPLOYEES.find(function (e) { return e.code === t.owner_code; }) || {}).name || "—") + "</td>" +
-                "<td>" + esc(t.dueDate || "—") + (over ? ' <span class="overdue">overdue</span>' : "") + "</td>" +
-                '<td><span class="badge" style="background:' + colorOf(t.status_code) + '">' + esc(t.status_code || "Not Started") + "</span></td></tr>";
-            }).join("") + "</tbody></table>"
-          : '<p style="color:var(--muted);font-size:13px;margin:0">All tasks are done — this handover is complete.</p>') +
-        "</div>";
+        // ---- Current tasks ---- (honor manager-hidden built-in task fields)
+        (function () {
+          var hideOwner = isHidden("HandoverTask", "owner");
+          var hideDue = isHidden("HandoverTask", "dueDate");
+          return '<div class="card"><h2>Current tasks (' + openTasks.length + " open)</h2>" +
+            (openTasks.length
+              ? '<table><thead><tr><th>Task</th><th>Phase</th>' +
+                (hideOwner ? "" : "<th>Owner</th>") +
+                (hideDue ? "" : "<th>Due date</th>") +
+                "<th>Status</th></tr></thead><tbody>" +
+                openTasks.map(function (t) {
+                  var over = t.dueDate && t.dueDate < today;
+                  return "<tr><td>" + esc(t.title) + "</td><td>" + esc(phaseName(t.phase)) + "</td>" +
+                    (hideOwner ? "" : "<td>" + esc((EMPLOYEES.find(function (e) { return e.code === t.owner_code; }) || {}).name || "—") + "</td>") +
+                    (hideDue ? "" : "<td>" + esc(t.dueDate || "—") + (over ? ' <span class="overdue">overdue</span>' : "") + "</td>") +
+                    '<td><span class="badge" style="background:' + colorOf(t.status_code) + '">' + esc(t.status_code || "Not Started") + "</span></td></tr>";
+                }).join("") + "</tbody></table>"
+              : '<p style="color:var(--muted);font-size:13px;margin:0">All tasks are done — this handover is complete. 🎉</p>') +
+            "</div>";
+        })();
 
       var area = document.getElementById("summaryArea");
       area.innerHTML = html;
       wirePlanHandlers(area);
+      wireCustomFields(area);
+      updateRequiredHint();
     }
 
     function renderTable() {
-      var html =
-        '<div class="card"><h2>Full plan</h2>' +
-        '<table><thead><tr><th style="width:34%">Task</th><th>Owner</th><th>Due date</th><th>Status</th><th></th></tr></thead><tbody>' +
-        allPhases().map(function (ph, pi) {
+      // Honor manager-hidden built-in task fields.
+      var hideOwner = isHidden("HandoverTask", "owner");
+      var hideDue = isHidden("HandoverTask", "dueDate");
+      // Columns: Task + [Owner] + [Due] + Status + actions.
+      var colCount = 2 + (hideOwner ? 0 : 1) + (hideDue ? 0 : 1) + 1;
+      var headColspan = colCount - 1; // everything except the trailing action cell
+
+      var rows = allPhases().map(function (ph, pi) {
           var ts = TASKS.filter(function (t) { return (t.phase || "(No phase)") === ph; });
           if (PHASES.indexOf(ph) < 0 && ts.length === 0) { return ""; }
-          return '<tr class="phaseHead"><td colspan="4">' + (pi + 1) + ". " + esc(ph) + "</td>" +
+          return '<tr class="phaseHead"><td colspan="' + headColspan + '">' + (pi + 1) + ". " + esc(phaseName(ph)) + "</td>" +
             '<td style="text-align:right"><button class="addBtn" data-add="' + esc(ph) + '">+ Task</button></td></tr>' +
             ts.map(function (t) {
+              var hasExtras = t.notes || TASK_DEFS.length;
               return '<tr data-task="' + esc(t.ID) + '">' +
                 '<td><input type="text" class="titleInput" data-fld="title" maxlength="200" value="' + esc(t.title) + '"></td>' +
-                '<td><select data-fld="owner_code">' + employeeOptions(t.owner_code) + "</select></td>" +
-                '<td><input type="date" data-fld="dueDate" value="' + esc(t.dueDate || "") + '"></td>' +
+                (hideOwner ? "" : '<td><select data-fld="owner_code">' + employeeOptions(t.owner_code) + "</select></td>") +
+                (hideDue ? "" : '<td><input type="date" data-fld="dueDate" value="' + esc(t.dueDate || "") + '"></td>') +
                 '<td><select data-fld="status_code">' + statusOptions(t.status_code) + "</select></td>" +
                 '<td class="rowBtns">' +
-                '<button class="iconBtn noteBtn' + (t.notes ? " hasNote" : "") + '" data-notes="' + esc(t.ID) + '" title="Task notes">✎</button>' +
+                '<button class="iconBtn noteBtn' + (hasExtras && (t.notes) ? " hasNote" : "") + '" data-notes="' + esc(t.ID) + '" title="Notes &amp; fields">✎</button>' +
                 '<button class="iconBtn" data-del="' + esc(t.ID) + '" title="Delete task">✕</button></td></tr>' +
                 '<tr class="notesRow" data-task="' + esc(t.ID) + '" data-notesrow="' + esc(t.ID) + '" style="display:none">' +
-                '<td colspan="5"><textarea data-fld="notes" maxlength="500" placeholder="Notes for this task…">' + esc(t.notes || "") + "</textarea></td></tr>";
+                '<td colspan="' + colCount + '">' +
+                '<textarea data-fld="notes" maxlength="500" placeholder="Notes for this task…">' + esc(t.notes || "") + "</textarea>" +
+                (TASK_DEFS.length
+                  ? '<div class="fieldGrid" style="margin-top:10px">' + TASK_DEFS.map(function (d) {
+                      var span = (d.fieldType === "textarea") ? ' style="grid-column:1/-1"' : "";
+                      return '<div class="fld"' + span + "><label>" + cfLabel(d) + "</label>" + cfControl(d, t.ID, 'Task "' + (t.title || "") + '"') + "</div>";
+                    }).join("") + "</div>"
+                  : "") +
+                "</td></tr>";
             }).join("");
-        }).join("") +
-        "</tbody></table></div>";
+        }).join("");
+
+      var html =
+        '<div class="card"><h2>Full plan</h2>' +
+        (PHASES.length === 0 && !rows
+          ? noPhasesHtml()
+          : '<table><thead><tr><th style="width:34%">Task</th>' +
+            (hideOwner ? "" : "<th>Owner</th>") +
+            (hideDue ? "" : "<th>Due date</th>") +
+            "<th>Status</th><th></th></tr></thead><tbody>" +
+            rows +
+            "</tbody></table>") +
+        "</div>";
 
       var area = document.getElementById("tableArea");
       area.innerHTML = html;
       wireTaskHandlers(area);
+      wireCustomFields(area);
+      updateRequiredHint();
     }
 
     function fld(label, control) {
@@ -596,37 +775,6 @@
             .catch(showError);
         };
       });
-      // Receiver — add
-      Array.prototype.slice.call(area.querySelectorAll(".addReceiverSel")).forEach(function (sel) {
-        sel.onchange = function () {
-          var code = sel.value;
-          if (!code) { return; }
-          sel.value = "";
-          sel.disabled = true;
-          odata("HandoverReceivers", { method: "POST", body: { plan_project_ID: currentProject, employee_code: code } })
-            .then(function (created) {
-              if (!PLAN.toOwners) { PLAN.toOwners = []; }
-              PLAN.toOwners.push(created);
-              renderSummary();
-              showSaved();
-            })
-            .catch(function (err) { sel.disabled = false; showError(err); });
-        };
-      });
-      // Receiver — remove
-      Array.prototype.slice.call(area.querySelectorAll(".removeReceiver")).forEach(function (btn) {
-        btn.onclick = function () {
-          var id = btn.getAttribute("data-receiver-id");
-          btn.disabled = true;
-          odata("HandoverReceivers(" + id + ")", { method: "DELETE" })
-            .then(function () {
-              PLAN.toOwners = (PLAN.toOwners || []).filter(function (r) { return r.ID !== id; });
-              renderSummary();
-              showSaved();
-            })
-            .catch(function (err) { btn.disabled = false; showError(err); });
-        };
-      });
       // Manager-only: delete the whole plan (two-step confirm)
       var delBtn = area.querySelector("#delPlanBtn");
       if (delBtn) {
@@ -646,10 +794,63 @@
           });
         };
       }
+      // Manager-only: additively apply the latest task template (never deletes).
+      var applyBtn = area.querySelector("#applyTmplBtn");
+      if (applyBtn) {
+        applyBtn.onclick = function () {
+          applyBtn.disabled = true;
+          var orig = applyBtn.textContent;
+          applyBtn.textContent = "Applying…";
+          odata("applyTemplateToPlan", { method: "POST", body: { projectID: currentProject } })
+            .then(function (res) {
+              var added = (res && typeof res.value === "number") ? res.value :
+                          (typeof res === "number" ? res : 0);
+              if (added > 0) {
+                loadPlan();
+                setTimeout(function () {
+                  alert("Added " + added + " new task" + (added === 1 ? "" : "s") + " from the latest template.");
+                }, 100);
+              } else {
+                applyBtn.disabled = false;
+                applyBtn.textContent = orig;
+                alert("This plan is already up to date with the template — nothing to add.");
+              }
+            })
+            .catch(function (err) {
+              applyBtn.disabled = false;
+              applyBtn.textContent = orig;
+              showError(err);
+            });
+        };
+      }
       // Mark handover complete (shown when all tasks are done)
       var doneBtn = area.querySelector("#markCompleteBtn");
       if (doneBtn) {
         doneBtn.onclick = function () {
+          // Completion is where incompleteness matters most. First safeguard:
+          // if any tasks are still unfinished (the button may be shown even when
+          // the canComplete gating loosens, or a manager force-completes), surface
+          // a confirmation listing how many remain. Non-blocking — proceed/cancel.
+          var remaining = TASKS.filter(function (t) {
+            return t.status_code !== "Not Applicable" && !taskDone(t);
+          }).length;
+          if (remaining) {
+            var taskMsg = remaining + " task" + (remaining === 1 ? "" : "s") +
+              " " + (remaining === 1 ? "is" : "are") + " still incomplete.\n\n" +
+              "Mark this handover complete anyway?";
+            if (!confirm(taskMsg)) { return; }
+          }
+          // Second safeguard: if required custom fields are still empty, surface a
+          // confirmation listing exactly what's missing (same source as the
+          // banner). Non-blocking — the manager can still proceed or cancel.
+          var missing = collectMissingRequired().missing;
+          if (missing.length) {
+            var msg = missing.length + " required field" + (missing.length === 1 ? "" : "s") +
+              " " + (missing.length === 1 ? "is" : "are") + " still empty:\n\n" +
+              missing.map(function (m) { return "  • " + m; }).join("\n") +
+              "\n\nMark this handover complete anyway?";
+            if (!confirm(msg)) { return; }
+          }
           doneBtn.disabled = true;
           var today = new Date().toISOString().slice(0, 10);
           var body = { status_code: "Completed" };

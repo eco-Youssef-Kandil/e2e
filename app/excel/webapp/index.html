@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NADEC E2E — Excel Import / Export</title>
+
+  <style>
+    :root {
+      --nadec-blue: #0033A0;
+      --nadec-blue-dark: #002673;
+      --ink: #1d2d3e;
+      --muted: #5b6b7b;
+      --line: #d9e1e8;
+      --bg: #eef3f7;
+      --green: #2e7d32;
+      --red: #c62828;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0; min-height: 100%;
+      font-family: "72", "72full", Arial, Helvetica, sans-serif;
+      color: var(--ink);
+      background: linear-gradient(180deg, #eaf1fb 0%, #eef3f7 40%, #e7f0f7 100%);
+    }
+    #topBar {
+      position: fixed; top: 0; left: 0; right: 0; height: 48px; z-index: 1000;
+      display: flex; align-items: center; gap: 12px; padding: 0 16px;
+      background: linear-gradient(135deg, var(--nadec-blue), var(--nadec-blue-dark));
+      color: #fff; box-shadow: 0 2px 4px rgba(0,0,0,0.18); font-size: 13px;
+    }
+    #topBar .ghost {
+      padding: 5px 12px; font-size: 13px; font-weight: 600; color: #fff; cursor: pointer;
+      background: rgba(255,255,255,0.14); border: 1px solid rgba(255,255,255,0.5); border-radius: 6px;
+    }
+    #topBar .title { font-weight: 600; font-size: 15px; letter-spacing: 0.3px; white-space: nowrap; }
+    #topBar .spacer { flex: 1 1 auto; }
+    #topBar .who { opacity: 0.85; white-space: nowrap; }
+    #topBar .signout {
+      padding: 5px 14px; font-size: 13px; font-weight: 600; color: var(--nadec-blue); cursor: pointer;
+      background: #fff; border: 1px solid #fff; border-radius: 6px;
+    }
+
+    #content { padding: 66px 20px 40px; max-width: 980px; margin: 0 auto; }
+
+    #hero {
+      background: #fff; border: 1px solid var(--line); border-radius: 14px;
+      box-shadow: 0 4px 16px rgba(13,40,70,0.07);
+      padding: 18px 22px; margin-bottom: 18px;
+    }
+    #hero h1 { font-size: 20px; margin: 0; font-weight: 700; }
+    #hero p { margin: 6px 0 0; font-size: 13px; color: var(--muted); }
+
+    .card {
+      background: #fff; border: 1px solid var(--line); border-radius: 14px;
+      box-shadow: 0 4px 16px rgba(13,40,70,0.07);
+      padding: 18px 22px; margin-bottom: 18px;
+    }
+    .card h2 { font-size: 15px; margin: 0 0 4px; }
+    .card .sub { font-size: 12px; color: var(--muted); margin: 0 0 14px; }
+
+    .btnRow { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+    .btn {
+      padding: 9px 16px; font-size: 13px; font-weight: 700; cursor: pointer;
+      border-radius: 10px; border: 1px solid var(--nadec-blue);
+      background: #fff; color: var(--nadec-blue); font-family: inherit;
+    }
+    .btn:hover { background: #eef4ff; }
+    .btn.primary { background: var(--nadec-blue); color: #fff; }
+    .btn.primary:hover { background: var(--nadec-blue-dark); }
+    .btn:disabled { opacity: 0.45; cursor: default; }
+
+    .importBox {
+      margin-top: 16px; padding: 14px 16px; border: 1px dashed var(--line);
+      border-radius: 10px; background: #f8fafc;
+    }
+    .importBox h3 { margin: 0 0 4px; font-size: 13px; }
+    .importBox .hint { margin: 0 0 10px; font-size: 12px; color: var(--muted); }
+    .importBox input[type="file"] { font-size: 13px; font-family: inherit; }
+    .fileRow { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+
+    .result { margin-top: 12px; font-size: 13px; display: none; }
+    .result .counts { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+    .pill {
+      display: inline-block; padding: 4px 12px; border-radius: 999px;
+      font-size: 12px; font-weight: 700; border: 1px solid var(--line); background: #f5f8fb;
+    }
+    .pill.ok { color: var(--green); border-color: #bfe3c2; background: #f0f9f1; }
+    .pill.warn { color: #9a6b00; border-color: #ecd9a8; background: #fdf7e7; }
+    .pill.bad { color: var(--red); border-color: #f0c4c4; background: #fff5f5; }
+    .errList {
+      margin: 0; padding: 10px 14px 10px 30px; border-radius: 8px;
+      background: #fff5f5; border: 1px solid #f0c4c4; color: #8a2a2a;
+      max-height: 260px; overflow-y: auto;
+    }
+    .errList li { margin: 3px 0; }
+    .busy { font-size: 12px; color: var(--muted); display: none; }
+  </style>
+
+  <script>
+    (function () {
+      if (!sessionStorage.getItem("e2e-auth")) {
+        window.location.replace("../../project-portal/webapp/login.html");
+      }
+    })();
+  </script>
+</head>
+<body>
+  <div id="topBar">
+    <button class="ghost" id="backBtn">← Portal</button>
+    <span class="title">Excel Import / Export</span>
+    <div class="spacer"></div>
+    <span class="who" id="who"></span>
+    <button class="signout" id="signoutBtn">Sign out</button>
+  </div>
+
+  <div id="content">
+    <div id="hero">
+      <h1>Excel Import / Export</h1>
+      <p>Download a blank template or a filled export for Projects or Handover.
+         Columns follow your current field configuration: hidden fields are left out and
+         manager-defined custom fields are included, with dropdowns for list values.</p>
+    </div>
+
+    <div class="card" data-target="project">
+      <h2>Projects</h2>
+      <p class="sub">One row per project — core details plus project custom fields.</p>
+      <div class="btnRow">
+        <button class="btn" data-act="template">Download template</button>
+        <button class="btn primary" data-act="export">Download filled export</button>
+        <span class="busy">Preparing file…</span>
+      </div>
+      <div class="importBox" data-role="import" style="display:none">
+        <h3>Import from Excel (managers only)</h3>
+        <p class="hint">Rows with a Project ID update that project; rows with a blank ID create a new
+           one (Name required). Empty cells never overwrite existing values. Invalid rows are skipped
+           and reported below.</p>
+        <div class="fileRow">
+          <input type="file" accept=".xlsx" data-role="file">
+          <button class="btn primary" data-act="import" disabled>Import</button>
+          <span class="busy">Importing…</span>
+        </div>
+        <div class="result" data-role="result"></div>
+      </div>
+    </div>
+
+    <div class="card" data-target="handover">
+      <h2>Handover</h2>
+      <p class="sub">Handover plans and their tasks — two sheets, plus handover custom fields.</p>
+      <div class="btnRow">
+        <button class="btn" data-act="template">Download template</button>
+        <button class="btn primary" data-act="export">Download filled export</button>
+        <span class="busy">Preparing file…</span>
+      </div>
+      <div class="importBox" data-role="import" style="display:none">
+        <h3>Import from Excel (managers only)</h3>
+        <p class="hint">Plans are matched by Project ID; tasks with a Task ID update that task, tasks
+           with a blank ID are created (Project ID and Title required). Empty cells never overwrite
+           existing values. Invalid rows are skipped and reported below.</p>
+        <div class="fileRow">
+          <input type="file" accept=".xlsx" data-role="file">
+          <button class="btn primary" data-act="import" disabled>Import</button>
+          <span class="busy">Importing…</span>
+        </div>
+        <div class="result" data-role="result"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    "use strict";
+
+    var userName = sessionStorage.getItem("e2e-user-name") || "";
+    var userRole = sessionStorage.getItem("e2e-user-role") || "";
+    document.getElementById("who").textContent = userName + (userRole ? " · " + userRole : "");
+    document.getElementById("backBtn").onclick = function () {
+      window.location.href = "../../project-portal/webapp/index.html";
+    };
+    document.getElementById("signoutBtn").onclick = function () {
+      sessionStorage.removeItem("e2e-auth");
+      sessionStorage.removeItem("e2e-user-name");
+      sessionStorage.removeItem("e2e-user-role");
+      window.location.replace("../../project-portal/webapp/login.html");
+    };
+
+    function esc(s) {
+      return String(s === null || s === undefined ? "" : s)
+        .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+    }
+
+    var AUTH = sessionStorage.getItem("e2e-auth");
+    function callAction(name, body) {
+      return fetch("/governance/" + name, {
+        method: "POST",
+        headers: { Authorization: AUTH, "Content-Type": "application/json" },
+        body: JSON.stringify(body || {})
+      }).then(function (r) {
+        if (r.status === 401) {
+          sessionStorage.removeItem("e2e-auth");
+          window.location.replace("../../project-portal/webapp/login.html");
+          throw new Error("Not authorized");
+        }
+        return r.text().then(function (t) {
+          var j = null;
+          try { j = JSON.parse(t); } catch (e) {}
+          if (!r.ok) {
+            var msg = (j && j.error && j.error.message) ? j.error.message : ("Request failed: " + r.status);
+            throw new Error(msg);
+          }
+          return j;
+        });
+      });
+    }
+
+    function b64ToBlob(b64) {
+      var bin = atob(b64);
+      var bytes = new Uint8Array(bin.length);
+      for (var i = 0; i < bin.length; i++) { bytes[i] = bin.charCodeAt(i); }
+      return new Blob([bytes], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+      });
+    }
+    function downloadFile(file) {
+      var url = URL.createObjectURL(b64ToBlob(file.base64));
+      var a = document.createElement("a");
+      a.href = url;
+      a.download = file.fileName || "export.xlsx";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(function () { URL.revokeObjectURL(url); }, 5000);
+    }
+    function readFileB64(file) {
+      return new Promise(function (resolve, reject) {
+        var fr = new FileReader();
+        fr.onload = function () {
+          var s = String(fr.result || "");
+          resolve(s.slice(s.indexOf(",") + 1)); // strip data: prefix
+        };
+        fr.onerror = function () { reject(new Error("Could not read the file")); };
+        fr.readAsDataURL(file);
+      });
+    }
+
+    function renderResult(box, summary) {
+      var counts =
+        '<div class="counts">' +
+        '<span class="pill ok">Created: ' + Number(summary.created || 0) + "</span>" +
+        '<span class="pill ok">Updated: ' + Number(summary.updated || 0) + "</span>" +
+        '<span class="pill warn">Skipped: ' + Number(summary.skipped || 0) + "</span>" +
+        '<span class="pill' + ((summary.errors || []).length ? " bad" : "") + '">Errors: ' +
+          (summary.errors || []).length + "</span>" +
+        "</div>";
+      var errs = "";
+      if ((summary.errors || []).length) {
+        errs = '<ul class="errList">' + summary.errors.map(function (e) {
+          var where = (e.sheet ? e.sheet + " " : "") + (e.row ? "row " + e.row : "");
+          return "<li>" + esc((where ? where + ": " : "") + (e.message || "")) + "</li>";
+        }).join("") + "</ul>";
+      }
+      box.innerHTML = counts + errs;
+      box.style.display = "";
+    }
+
+    document.querySelectorAll(".card[data-target]").forEach(function (card) {
+      var target = card.getAttribute("data-target");
+      var importBox = card.querySelector('[data-role="import"]');
+      var fileInput = importBox.querySelector('[data-role="file"]');
+      var importBtn = importBox.querySelector('[data-act="import"]');
+      var resultBox = importBox.querySelector('[data-role="result"]');
+
+      if (userRole === "Manager" || userRole === "Admin") { importBox.style.display = ""; }
+
+      function withBusy(btn, busyEl, fn) {
+        var btns = card.querySelectorAll("button");
+        btns.forEach(function (b) { b.disabled = true; });
+        busyEl.style.display = "";
+        fn().catch(function (err) {
+          alert((err && err.message) || "Something went wrong");
+        }).finally(function () {
+          busyEl.style.display = "none";
+          btns.forEach(function (b) { b.disabled = false; });
+          importBtn.disabled = !fileInput.files.length;
+        });
+      }
+
+      card.querySelector('[data-act="template"]').onclick = function () {
+        withBusy(this, card.querySelector(".btnRow .busy"), function () {
+          return callAction("excelTemplate", { target: target }).then(downloadFile);
+        });
+      };
+      card.querySelector('[data-act="export"]').onclick = function () {
+        withBusy(this, card.querySelector(".btnRow .busy"), function () {
+          return callAction("excelExport", { target: target }).then(downloadFile);
+        });
+      };
+
+      fileInput.onchange = function () {
+        importBtn.disabled = !fileInput.files.length;
+        resultBox.style.display = "none";
+      };
+      importBtn.onclick = function () {
+        var f = fileInput.files[0];
+        if (!f) { return; }
+        withBusy(importBtn, importBox.querySelector(".busy"), function () {
+          return readFileB64(f).then(function (b64) {
+            return callAction("excelImport", { target: target, base64: b64 });
+          }).then(function (res) {
+            var raw = res && res.value !== undefined ? res.value : res;
+            var summary = typeof raw === "string" ? JSON.parse(raw) : (raw || {});
+            renderResult(resultBox, summary);
+            fileInput.value = "";
+            importBtn.disabled = true;
+          });
+        });
+      };
+    });
+  </script>
+  <script src="/shared/nav.js"></script>
+</body>
+</html>

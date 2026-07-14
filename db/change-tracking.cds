@@ -21,6 +21,9 @@ annotate nadec.e2e.Projects with @changelog: [ID, name] {
   priority      @changelog: [priority.name];
   phase         @changelog: [phase.name];
   riskLevel     @changelog: [riskLevel.name];
+  startDate        @changelog;
+  targetGoLiveDate @changelog;
+  actualGoLiveDate @changelog;
   numberOfUsers    @changelog;
   numberOfRequests @changelog;
   notes         @changelog;
@@ -118,4 +121,28 @@ annotate nadec.e2e.Risks with @changelog: [project.ID, description] {
   status           @changelog: [status.name];
   escalationNeeded @changelog: [escalationNeeded.name];
   notes            @changelog;
+}
+
+// ---- Handover plan & tasks ----
+annotate nadec.e2e.HandoverPlans with @changelog: [project.ID] {
+  status     @changelog: [status.name];
+  targetDate @changelog;
+  actualDate @changelog;
+  fromOwner  @changelog: [fromOwner.name];
+  toOwner    @changelog: [toOwner.name];
+  notes      @changelog;
+}
+
+annotate nadec.e2e.HandoverTasks with @changelog: [plan.project.ID, title] {
+  phase   @changelog;
+  title   @changelog;
+  owner   @changelog: [owner.name];
+  dueDate @changelog;
+  status  @changelog: [status.name];
+  notes   @changelog;
+}
+
+// ---- Custom field values (recordKey = project / task the value belongs to) ----
+annotate nadec.e2e.CustomFieldValues with @changelog: [recordKey] {
+  value @changelog;
 }

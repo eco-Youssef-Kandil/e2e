@@ -86,15 +86,60 @@ service GovernanceService @(path: '/governance') {
     { grant: ['READ', 'CREATE', 'UPDATE', 'DELETE'], to: 'authenticated-user' }
   ])
   entity HandoverTasks   as projection on my.HandoverTasks;
-  @(restrict: [
-    { grant: ['READ', 'CREATE', 'UPDATE', 'DELETE'], to: 'authenticated-user' }
-  ])
-  entity HandoverReceivers as projection on my.HandoverReceivers;
 
   // Creates a handover plan for a project from the standard template
   // (phased journey of tasks). No-op error if the plan already exists.
   @(requires: 'authenticated-user')
   action createHandoverPlan(projectID: String) returns String;
+
+  // Adds any template tasks not yet present on an existing plan — additive
+  // only, never deletes or overwrites the user's existing tasks.
+  @(requires: 'authenticated-user')
+  action applyTemplateToPlan(projectID: String) returns Integer;
+
+  // ---- Configurable handover phases & task template (Manager-only edit) ----
+  @(restrict: [
+    { grant: ['READ'], to: 'authenticated-user' },
+    { grant: ['CREATE','UPDATE','DELETE'], to: 'Manager' }
+  ]) entity HandoverPhases        as projection on my.HandoverPhases;
+  @(restrict: [
+    { grant: ['READ'], to: 'authenticated-user' },
+    { grant: ['CREATE','UPDATE','DELETE'], to: 'Manager' }
+  ]) entity HandoverTaskTemplates as projection on my.HandoverTaskTemplates;
+
+  // ---- Custom fields (definitions + values) ----
+  // Definitions are Manager-only; values are editable by any authenticated user
+  // (they fill the fields) but only via the validated saveCustomFieldValue action.
+  @(restrict: [
+    { grant: ['READ'], to: 'authenticated-user' },
+    { grant: ['CREATE','UPDATE','DELETE'], to: 'Manager' }
+  ]) entity CustomFieldDefs       as projection on my.CustomFieldDefs;
+  @(restrict: [
+    { grant: ['READ'], to: 'authenticated-user' }
+  ]) entity CustomFieldValues     as projection on my.CustomFieldValues;
+
+  // Built-in field visibility on surfaces we control (Manager-only edit).
+  @(restrict: [
+    { grant: ['READ'], to: 'authenticated-user' },
+    { grant: ['CREATE','UPDATE','DELETE'], to: 'Manager' }
+  ]) entity FieldVisibility       as projection on my.FieldVisibility;
+
+  // Upsert one custom-field value (validated by type + required flag).
+  @(requires: 'authenticated-user')
+  action saveCustomFieldValue(def_ID: String, recordKey: String, value: String) returns String;
+
+  // ---- Excel import / export ----
+  // Templates & exports are dynamic: built-in columns (minus manager-hidden
+  // ones) + all active custom fields, with dropdown validation from the live
+  // lookup lists. target: 'project' | 'handover'. Files travel base64-encoded.
+  type ExcelFile { fileName : String; base64 : LargeString; }
+  @(requires: 'authenticated-user')
+  action excelTemplate(target: String) returns ExcelFile;
+  @(requires: 'authenticated-user')
+  action excelExport(target: String) returns ExcelFile;
+  // Bulk import changes many records at once — Manager only.
+  @(requires: 'Manager')
+  action excelImport(target: String, base64: LargeString) returns LargeString;
 
   // ---- Dashboards (computed, read-only) ----
   @readonly entity EmployeeAllocation    as projection on EmployeeAllocationView;
@@ -115,10 +160,16 @@ service GovernanceService @(path: '/governance') {
   // projects. Restricted to Manager (Admin inherits Manager — see role-guard.js).
   @readonly
   @(restrict: [{ grant: 'READ', to: 'Manager' }])
+  // The where clause hides one specific noise signature the plugin emits:
+  // when a composition child changes, the parent also gets an "update" row
+  // for the composition element (e.g. HandoverPlans.tasks) with NO old and NO
+  // new value. Such null→null *updates* carry no information. Create/delete
+  // rows always carry a value (verified), so they are never suppressed.
   entity ChangeLog as projection on chg.Changes {
     ID, entity, attribute, valueChangedFrom, valueChangedTo,
     modification, objectID, createdAt, createdBy
-  };
+  } where valueChangedFrom is not null or valueChangedTo is not null
+       or modification <> 'update';
 
   // ---- Value-help lookups ----
   // Everyone reads them (they feed the dropdowns / value helps); only the

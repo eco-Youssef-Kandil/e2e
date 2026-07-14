@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NADEC E2E — Required Field Gaps</title>
+
+  <style>
+    :root {
+      --nadec-blue: #0033A0;
+      --nadec-blue-dark: #002673;
+      --ink: #1d2d3e;
+      --muted: #5b6b7b;
+      --line: #d9e1e8;
+      --bg: #eef3f7;
+      --green: #2e7d32;
+      --red: #c62828;
+      --amber: #b26a00;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0; min-height: 100%;
+      font-family: "72", "72full", Arial, Helvetica, sans-serif;
+      color: var(--ink);
+      background: linear-gradient(180deg, #eaf1fb 0%, #eef3f7 40%, #e7f0f7 100%);
+    }
+    #topBar {
+      position: fixed; top: 0; left: 0; right: 0; height: 48px; z-index: 1000;
+      display: flex; align-items: center; gap: 12px; padding: 0 16px;
+      background: linear-gradient(135deg, var(--nadec-blue), var(--nadec-blue-dark));
+      color: #fff; box-shadow: 0 2px 4px rgba(0,0,0,0.18); font-size: 13px;
+    }
+    #topBar .ghost {
+      padding: 5px 12px; font-size: 13px; font-weight: 600; color: #fff; cursor: pointer;
+      background: rgba(255,255,255,0.14); border: 1px solid rgba(255,255,255,0.5); border-radius: 6px;
+    }
+    #topBar .title { font-weight: 600; font-size: 15px; letter-spacing: 0.3px; white-space: nowrap; }
+    #topBar .spacer { flex: 1 1 auto; }
+    #topBar .who { opacity: 0.85; white-space: nowrap; }
+    #topBar .signout {
+      padding: 5px 14px; font-size: 13px; font-weight: 600; color: var(--nadec-blue); cursor: pointer;
+      background: #fff; border: 1px solid #fff; border-radius: 6px;
+    }
+
+    #content { padding: 66px 20px 40px; max-width: 980px; margin: 0 auto; display: none; }
+
+    #hero {
+      background: #fff; border: 1px solid var(--line); border-radius: 14px;
+      box-shadow: 0 4px 16px rgba(13,40,70,0.07);
+      padding: 18px 22px; margin-bottom: 18px;
+    }
+    #hero h1 { font-size: 20px; margin: 0; font-weight: 700; }
+    #hero h1 small { display: block; font-size: 12px; color: var(--muted); font-weight: 400; margin-top: 3px; }
+
+    .stats { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 16px; }
+    .stat {
+      flex: 1 1 150px; background: #f5f8fb; border: 1px solid var(--line); border-radius: 12px;
+      padding: 12px 16px;
+    }
+    .stat .num { font-size: 26px; font-weight: 800; line-height: 1; }
+    .stat .lbl { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.4px; margin-top: 6px; font-weight: 700; }
+    .stat.red .num { color: var(--red); }
+    .stat.amber .num { color: var(--amber); }
+    .stat.green .num { color: var(--green); }
+
+    #controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 16px; }
+    #search {
+      flex: 1 1 240px; min-width: 200px; padding: 9px 12px; font-size: 14px; font-family: inherit;
+      color: var(--ink); border: 1px solid var(--line); border-radius: 10px; background: #fff;
+    }
+    #search:focus { outline: none; border-color: var(--nadec-blue); }
+
+    .card {
+      background: #fff; border: 1px solid var(--line); border-radius: 14px;
+      box-shadow: 0 4px 16px rgba(13,40,70,0.07);
+      padding: 16px 20px; margin-bottom: 14px;
+    }
+    .card .head { display: flex; flex-wrap: wrap; gap: 10px; align-items: baseline; }
+    .card .pname { font-size: 15px; font-weight: 700; margin: 0; }
+    .card .pname small { color: var(--muted); font-weight: 400; }
+    .pill {
+      font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 999px;
+      background: #fdeaea; color: var(--red); border: 1px solid #f3c9c9; white-space: nowrap;
+    }
+    .card .spacer { flex: 1 1 auto; }
+
+    .grp { margin-top: 14px; }
+    .grp:first-of-type { margin-top: 12px; }
+    .grp .gh {
+      display: flex; align-items: center; gap: 8px; margin-bottom: 8px;
+    }
+    .grp .gh .gtitle { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; color: var(--muted); }
+    .grp .gh .gcount { font-size: 11px; font-weight: 700; color: var(--red); }
+    .grp .fixBtn {
+      margin-left: auto; padding: 6px 13px; font-size: 12px; font-weight: 700; color: #fff; cursor: pointer;
+      background: var(--nadec-blue); border: none; border-radius: 8px; text-decoration: none; white-space: nowrap;
+    }
+    .grp .fixBtn:hover { background: var(--nadec-blue-dark); }
+    .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+    .chip {
+      font-size: 12px; padding: 4px 10px; border-radius: 8px;
+      background: #fff5f5; border: 1px solid #f0c4c4; color: #8a2a2a;
+    }
+    .chip .ctx { color: var(--muted); }
+    .moreChip { background: #f0f4f8; border-color: var(--line); color: var(--muted); font-weight: 600; }
+
+    .banner {
+      background: #eef7ee; border: 1px solid #cfe6cf; border-left: 4px solid var(--green);
+      color: #205022; border-radius: 12px; padding: 16px 20px; font-size: 14px;
+    }
+    .empty { color: var(--muted); font-size: 14px; }
+    #noMatch { display: none; color: var(--muted); font-size: 14px; text-align: center; padding: 24px; }
+
+    #loading, #error { margin-top: 100px; text-align: center; color: var(--muted); font-size: 15px; }
+    #error { color: #c62828; display: none; }
+  </style>
+
+  <script>
+    (function () {
+      if (!sessionStorage.getItem("e2e-auth")) {
+        window.location.replace("../../project-portal/webapp/login.html");
+      }
+    })();
+  </script>
+</head>
+<body>
+  <div id="topBar">
+    <button class="ghost" id="backBtn">← Portal</button>
+    <span class="title">Required Field Gaps</span>
+    <div class="spacer"></div>
+    <span class="who" id="who"></span>
+    <button class="signout" id="signoutBtn">Sign out</button>
+  </div>
+
+  <div id="content">
+    <div id="hero">
+      <h1>Required field gaps
+        <small>Projects and handovers with empty required custom fields. Click through to fill them in.</small>
+      </h1>
+      <div class="stats" id="stats"></div>
+      <div id="controls">
+        <input id="search" type="text" placeholder="Filter by project ID or name…" autocomplete="off">
+      </div>
+    </div>
+
+    <div id="list"></div>
+    <div id="noMatch">No projects match your filter.</div>
+  </div>
+
+  <div id="loading">Scanning projects for required field gaps…</div>
+  <div id="error"></div>
+
+  <script>
+    "use strict";
+
+    var userName = sessionStorage.getItem("e2e-user-name") || "";
+    var userRole = sessionStorage.getItem("e2e-user-role") || "";
+    document.getElementById("who").textContent = userName + (userRole ? " · " + userRole : "");
+    document.getElementById("backBtn").onclick = function () {
+      window.location.href = "../../project-portal/webapp/index.html";
+    };
+    document.getElementById("signoutBtn").onclick = function () {
+      sessionStorage.removeItem("e2e-auth");
+      sessionStorage.removeItem("e2e-user-name");
+      sessionStorage.removeItem("e2e-user-role");
+      window.location.replace("../../project-portal/webapp/login.html");
+    };
+
+    function esc(s) {
+      return String(s === null || s === undefined ? "" : s)
+        .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+    }
+
+    var AUTH = sessionStorage.getItem("e2e-auth");
+    function odata(path, opts) {
+      opts = opts || {};
+      var headers = { Authorization: AUTH };
+      if (opts.body) { headers["Content-Type"] = "application/json"; }
+      return fetch("/governance/" + path, {
+        method: opts.method || "GET",
+        headers: headers,
+        body: opts.body ? JSON.stringify(opts.body) : undefined
+      }).then(function (r) {
+        if (r.status === 401) {
+          sessionStorage.removeItem("e2e-auth");
+          window.location.replace("../../project-portal/webapp/login.html");
+          throw new Error("Not authorized");
+        }
+        if (!r.ok) {
+          return r.text().then(function (t) {
+            var msg = "Request failed: " + r.status;
+            try { var j = JSON.parse(t); if (j.error && j.error.message) { msg = j.error.message; } } catch (e) {}
+            var err = new Error(msg); err.status = r.status; throw err;
+          });
+        }
+        if (r.status === 204) { return null; }
+        return r.json();
+      });
+    }
+
+    // ---- Data --------------------------------------------------------------------
+    var PROJECT_DEFS = [], PLAN_DEFS = [], TASK_DEFS = [];
+    var GAPS = [];               // computed rows, one per project with >=1 gap
+    var CF = {};                 // value lookup: def_ID + "|" + recordKey -> value
+    var HAS_DEFS = false;        // whether any required custom field is defined
+
+    function has(defID, recordKey) {
+      var v = CF[defID + "|" + recordKey];
+      return v !== null && v !== undefined && String(v).trim() !== "";
+    }
+
+    Promise.all([
+      odata("CustomFieldDefs?$select=ID,target,label,sort&$filter=active eq true and required eq true" +
+            "&$orderby=target,sort&$top=500"),
+      odata("Projects?$select=ID,name&$filter=IsActiveEntity eq true&$orderby=ID&$top=5000"),
+      odata("HandoverPlans?$select=project_ID&$top=5000"),
+      odata("CustomFieldValues?$select=def_ID,recordKey,value&$top=100000")
+    ]).then(function (res) {
+      var defs = res[0].value || [];
+      PROJECT_DEFS = defs.filter(function (d) { return d.target === "Project"; });
+      PLAN_DEFS = defs.filter(function (d) { return d.target === "HandoverPlan"; });
+      TASK_DEFS = defs.filter(function (d) { return d.target === "HandoverTask"; });
+
+      var projects = res[1].value || [];
+      var planSet = {};
+      (res[2].value || []).forEach(function (p) { planSet[p.project_ID] = true; });
+      (res[3].value || []).forEach(function (v) { CF[v.def_ID + "|" + v.recordKey] = v.value; });
+
+      // Handover tasks are only needed when a required task-level field exists.
+      var tasksPromise = TASK_DEFS.length
+        ? odata("HandoverTasks?$select=ID,phase,title,plan_project_ID&$top=100000")
+            .then(function (r) { return r.value || []; })
+            .catch(function () { return []; })
+        : Promise.resolve([]);
+
+      return tasksPromise.then(function (tasks) {
+        var tasksByProject = {};
+        tasks.forEach(function (t) {
+          var pid = t.plan_project_ID;
+          if (!pid) { return; }
+          (tasksByProject[pid] = tasksByProject[pid] || []).push(t);
+        });
+
+        GAPS = projects.map(function (p) {
+          var projectGaps = PROJECT_DEFS
+            .filter(function (d) { return !has(d.ID, p.ID); })
+            .map(function (d) { return { label: d.label }; });
+
+          var handoverGaps = [];
+          if (planSet[p.ID]) {
+            PLAN_DEFS.forEach(function (d) {
+              if (!has(d.ID, p.ID)) { handoverGaps.push({ label: d.label, ctx: "Handover plan" }); }
+            });
+          }
+          (tasksByProject[p.ID] || []).forEach(function (t) {
+            TASK_DEFS.forEach(function (d) {
+              if (!has(d.ID, t.ID)) {
+                handoverGaps.push({ label: d.label, ctx: (t.title || "Task") });
+              }
+            });
+          });
+
+          return {
+            id: p.ID,
+            name: p.name || "",
+            projectGaps: projectGaps,
+            handoverGaps: handoverGaps,
+            total: projectGaps.length + handoverGaps.length
+          };
+        }).filter(function (g) { return g.total > 0; });
+
+        HAS_DEFS = defs.length > 0;
+        document.getElementById("loading").style.display = "none";
+        document.getElementById("content").style.display = "";
+        renderStats(projects.length, defs.length);
+        renderList("");
+        wireSearch();
+      });
+    }).catch(function (err) {
+      document.getElementById("loading").style.display = "none";
+      var e = document.getElementById("error");
+      e.style.display = "";
+      e.textContent = "Could not load field gaps: " + (err && err.message ? err.message : "unknown error");
+    });
+
+    function renderStats(projectCount, defCount) {
+      var projectsWithGaps = GAPS.length;
+      var totalGaps = GAPS.reduce(function (s, g) { return s + g.total; }, 0);
+      var clean = projectCount - projectsWithGaps;
+      var stats = document.getElementById("stats");
+      if (!defCount) {
+        stats.innerHTML =
+          '<div class="stat"><div class="num">0</div><div class="lbl">Required fields defined</div></div>';
+        return;
+      }
+      stats.innerHTML =
+        '<div class="stat red"><div class="num">' + projectsWithGaps + '</div>' +
+          '<div class="lbl">Projects with gaps</div></div>' +
+        '<div class="stat amber"><div class="num">' + totalGaps + '</div>' +
+          '<div class="lbl">Empty required fields</div></div>' +
+        '<div class="stat green"><div class="num">' + clean + '</div>' +
+          '<div class="lbl">Projects complete</div></div>';
+    }
+
+    function chipHtml(g) {
+      var ctx = g.ctx ? '<span class="ctx"> · ' + esc(g.ctx) + '</span>' : "";
+      return '<span class="chip">' + esc(g.label) + ctx + '</span>';
+    }
+
+    // Render at most `max` chips, folding the rest into a "+N more" chip.
+    function chipsHtml(list, max) {
+      var shown = list.slice(0, max).map(chipHtml).join("");
+      if (list.length > max) {
+        shown += '<span class="chip moreChip">+' + (list.length - max) + ' more</span>';
+      }
+      return shown;
+    }
+
+    function groupHtml(title, gaps, href, maxChips) {
+      if (!gaps.length) { return ""; }
+      return '<div class="grp">' +
+        '<div class="gh">' +
+          '<span class="gtitle">' + esc(title) + '</span>' +
+          '<span class="gcount">' + gaps.length + ' empty</span>' +
+          '<a class="fixBtn" href="' + esc(href) + '">Fix →</a>' +
+        '</div>' +
+        '<div class="chips">' + chipsHtml(gaps, maxChips) + '</div>' +
+      '</div>';
+    }
+
+    function cardHtml(g) {
+      var q = "?project=" + encodeURIComponent(g.id);
+      var pfHref = "/project-fields/webapp/index.html" + q;
+      var hoHref = "/handover/webapp/index.html" + q;
+      return '<div class="card">' +
+        '<div class="head">' +
+          '<h3 class="pname">' + esc(g.id) + ' <small>— ' + esc(g.name) + '</small></h3>' +
+          '<span class="spacer"></span>' +
+          '<span class="pill">' + g.total + ' missing</span>' +
+        '</div>' +
+        groupHtml("Project fields", g.projectGaps, pfHref, 8) +
+        groupHtml("Handover", g.handoverGaps, hoHref, 8) +
+      '</div>';
+    }
+
+    function renderList(term) {
+      var list = document.getElementById("list");
+      var noMatch = document.getElementById("noMatch");
+
+      if (!HAS_DEFS) {
+        noMatch.style.display = "none";
+        list.innerHTML = '<div class="banner" style="background:#f0f4f8;border-color:var(--line);border-left-color:var(--nadec-blue);color:var(--muted)">' +
+          '<strong>No required custom fields yet.</strong> Once managers mark custom fields as required ' +
+          '(Manage Lists → Custom fields), any project or handover missing a value will show up here.' +
+        '</div>';
+        return;
+      }
+
+      if (!GAPS.length) {
+        noMatch.style.display = "none";
+        list.innerHTML = '<div class="banner">' +
+          '<strong>All caught up.</strong> Every project has its required custom fields filled in.' +
+        '</div>';
+        return;
+      }
+
+      var t = String(term || "").trim().toLowerCase();
+      var rows = t
+        ? GAPS.filter(function (g) {
+            return g.id.toLowerCase().indexOf(t) >= 0 || g.name.toLowerCase().indexOf(t) >= 0;
+          })
+        : GAPS;
+
+      if (!rows.length) {
+        list.innerHTML = "";
+        noMatch.style.display = "block";
+        return;
+      }
+      noMatch.style.display = "none";
+      list.innerHTML = rows.map(cardHtml).join("");
+    }
+
+    function wireSearch() {
+      var box = document.getElementById("search");
+      box.oninput = function () { renderList(box.value); };
+    }
+  </script>
+  <script src="/shared/nav.js"></script>
+</body>
+</html>

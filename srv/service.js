@@ -47,10 +47,23 @@ module.exports = class GovernanceService extends cds.ApplicationService {
       }
     })
 
-    // --- Handover: create a plan from the standard template -------------------
-    // One plan per project; tasks follow the phased handover journey. The
-    // caller sets owners/dates afterwards on the Handover page. fromOwner
-    // defaults to the project's current IT Owner (the delivery-side owner).
+    // --- Excel import / export / template generation (srv/lib/excel.js) ---
+    require('./lib/excel')(this)
+
+    // --- Handover: configurable phases & task template ------------------------
+    // The phase list and the default task template used to be hardcoded here;
+    // they now live in the HandoverPhases / HandoverTaskTemplates tables so a
+    // manager can edit them from Manage Lists. The constants below are only the
+    // first-run seed (and a safety fallback if the tables are somehow empty).
+    // fromOwner defaults to the project's current IT Owner (delivery-side owner).
+    const DEFAULT_PHASES = [
+      ['Preparation',        'Scope the handover — what is being handed over, to whom, and by when.'],
+      ['Documentation',      'Runbooks, architecture notes and how-to guides for the support team.'],
+      ['Knowledge Transfer', 'Walkthrough sessions and shadowing so support knows the solution.'],
+      ['Access & Setup',     'Support team gets system access, monitoring and alerting in place.'],
+      ['Hypercare',          'Delivery team stays close while support handles real tickets.'],
+      ['Sign-off',           'Both sides confirm the handover is complete — support owns it now.']
+    ]
     const HANDOVER_TEMPLATE = [
       ['Preparation',        'Confirm handover scope & timeline'],
       ['Preparation',        'Identify receiving support owner'],
@@ -68,21 +81,59 @@ module.exports = class GovernanceService extends cds.ApplicationService {
       ['Sign-off',           'Support owner sign-off'],
       ['Sign-off',           'Formal handover complete & closure']
     ]
+
+    // Seed phases + template once (first run / fresh tables) so nothing regresses.
+    const seedHandoverConfig = async () => {
+      try {
+        const phases = await SELECT.from('nadec.e2e.HandoverPhases').columns('ID')
+        if (!phases.length) {
+          await INSERT.into('nadec.e2e.HandoverPhases').entries(
+            DEFAULT_PHASES.map(([id, desc], i) => ({
+              ID: id, name: id, description: desc, sort: (i + 1) * 10, active: true
+            }))
+          )
+        }
+        const tmpl = await SELECT.from('nadec.e2e.HandoverTaskTemplates').columns('ID')
+        if (!tmpl.length) {
+          await INSERT.into('nadec.e2e.HandoverTaskTemplates').entries(
+            HANDOVER_TEMPLATE.map(([phase, title], i) => ({
+              phase, title, sort: (i + 1) * 10, active: true
+            }))
+          )
+        }
+      } catch (e) {
+        console.warn('[handover] seed skipped:', e.message)
+      }
+    }
+    cds.on('served', seedHandoverConfig)
+
+    // Active template tasks in display order (falls back to the hardcoded
+    // default only if the table is empty, so a plan is never seeded blank).
+    const loadTemplate = async (tx) => {
+      const rows = await tx.run(
+        SELECT.from('nadec.e2e.HandoverTaskTemplates')
+          .where({ active: true }).orderBy('sort', 'title')
+      )
+      if (rows.length) return rows.map((r) => [r.phase, r.title])
+      return HANDOVER_TEMPLATE
+    }
+
     this.on('createHandoverPlan', async (req) => {
       const projectID = (req.data.projectID || '').trim()
       if (!projectID) return req.reject(400, 'projectID is required.')
-      const project = await SELECT.one.from('nadec.e2e.Projects').where({ ID: projectID })
+      const tx = cds.tx(req)
+      const project = await tx.run(SELECT.one.from('nadec.e2e.Projects').where({ ID: projectID }))
       if (!project) return req.reject(404, `Project ${projectID} does not exist.`)
-      const existing = await SELECT.one.from('nadec.e2e.HandoverPlans')
-        .where({ project_ID: projectID })
+      const existing = await tx.run(SELECT.one.from('nadec.e2e.HandoverPlans')
+        .where({ project_ID: projectID }))
       if (existing) return req.reject(409, `Project ${projectID} already has a handover plan.`)
 
       try {
-        await INSERT.into('nadec.e2e.HandoverPlans').entries({
+        await tx.run(INSERT.into('nadec.e2e.HandoverPlans').entries({
           project_ID: projectID,
           status_code: 'Not Started',
           fromOwner_code: project.itOwner_code || null
-        })
+        }))
       } catch (e) {
         // Concurrent create for the same project → unique-key violation.
         // Surface it as the same 409 the pre-check would have returned.
@@ -91,15 +142,140 @@ module.exports = class GovernanceService extends cds.ApplicationService {
         }
         throw e
       }
-      await INSERT.into('nadec.e2e.HandoverTasks').entries(
-        HANDOVER_TEMPLATE.map(([phase, title], i) => ({
+      const template = await loadTemplate(tx)
+      if (template.length) {
+        await tx.run(INSERT.into('nadec.e2e.HandoverTasks').entries(
+          template.map(([phase, title], i) => ({
+            plan_project_ID: projectID,
+            phase, title,
+            status_code: 'Not Started',
+            sort: (i + 1) * 10
+          }))
+        ))
+      }
+      return projectID
+    })
+
+    // Apply the latest template to an existing plan — ADDITIVE ONLY. Adds any
+    // template task (phase + title) not already on the plan; never deletes or
+    // overwrites the user's existing tasks. Returns how many were added.
+    this.on('applyTemplateToPlan', async (req) => {
+      const projectID = (req.data.projectID || '').trim()
+      if (!projectID) return req.reject(400, 'projectID is required.')
+      const tx = cds.tx(req)
+      const plan = await tx.run(SELECT.one.from('nadec.e2e.HandoverPlans')
+        .where({ project_ID: projectID }))
+      if (!plan) return req.reject(404, `Project ${projectID} has no handover plan yet.`)
+
+      const template = await loadTemplate(tx)
+      const existing = await tx.run(SELECT.from('nadec.e2e.HandoverTasks')
+        .columns('phase', 'title', 'sort').where({ plan_project_ID: projectID }))
+      const seen = new Set(existing.map((t) =>
+        (t.phase || '').toLowerCase() + ' ' + (t.title || '').toLowerCase()))
+      let maxSort = existing.reduce((m, t) => Math.max(m, t.sort || 0), 0)
+
+      const toAdd = []
+      for (const [phase, title] of template) {
+        const key = (phase || '').toLowerCase() + ' ' + (title || '').toLowerCase()
+        if (seen.has(key)) continue
+        seen.add(key)
+        maxSort += 10
+        toAdd.push({
           plan_project_ID: projectID,
           phase, title,
           status_code: 'Not Started',
-          sort: (i + 1) * 10
-        }))
-      )
-      return projectID
+          sort: maxSort
+        })
+      }
+      if (toAdd.length) await tx.run(INSERT.into('nadec.e2e.HandoverTasks').entries(toAdd))
+      return toAdd.length
+    })
+
+    // --- Custom fields: validated upsert of one value -------------------------
+    this.on('saveCustomFieldValue', async (req) => {
+      const { def_ID, recordKey } = req.data
+      let value = req.data.value
+      if (!def_ID) return req.reject(400, 'def_ID is required.')
+      if (!recordKey) return req.reject(400, 'recordKey is required.')
+      const tx = cds.tx(req)
+      const def = await tx.run(SELECT.one.from('nadec.e2e.CustomFieldDefs').where({ ID: def_ID }))
+      if (!def) return req.reject(404, 'That custom field no longer exists.')
+
+      value = value === null || value === undefined ? '' : String(value).trim()
+      const empty = value === ''
+
+      if (def.required && empty) {
+        return req.reject(400, `"${def.label}" is required.`)
+      }
+      if (!empty) {
+        switch (def.fieldType) {
+          case 'number':
+            if (!/^-?\d+(\.\d+)?$/.test(value) || !isFinite(Number(value))) {
+              return req.reject(400, `"${def.label}" must be a number.`)
+            }
+            break
+          case 'date':
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || isNaN(Date.parse(value))) {
+              return req.reject(400, `"${def.label}" must be a valid date.`)
+            }
+            break
+          case 'boolean':
+            if (value !== 'true' && value !== 'false') {
+              return req.reject(400, `"${def.label}" must be yes or no.`)
+            }
+            break
+          case 'select': {
+            const opts = String(def.options || '').split(/\r?\n/)
+              .map((s) => s.trim()).filter(Boolean)
+            if (opts.length && opts.indexOf(value) < 0) {
+              return req.reject(400, `"${value}" is not a valid option for "${def.label}".`)
+            }
+            break
+          }
+          default:
+            if (value.length > 2000) value = value.slice(0, 2000)
+        }
+      }
+
+      const existing = await tx.run(SELECT.one.from('nadec.e2e.CustomFieldValues')
+        .where({ def_ID, recordKey }))
+      if (existing) {
+        await tx.run(UPDATE('nadec.e2e.CustomFieldValues')
+          .set({ value }).where({ ID: existing.ID }))
+        return existing.ID
+      }
+      const ID = cds.utils.uuid()
+      await tx.run(INSERT.into('nadec.e2e.CustomFieldValues').entries({ ID, def_ID, recordKey, value }))
+      return ID
+    })
+
+    // --- Handover phase / custom-field delete protection ----------------------
+    // Block deleting a phase still used by tasks or the template, or a custom
+    // field that still holds values (consistent with the lookup guard below).
+    this.before('DELETE', 'HandoverPhases', async (req) => {
+      const key = req.params && req.params[req.params.length - 1]
+      const id = key && (key.ID !== undefined ? key.ID : key)
+      if (!id) return
+      const tx = cds.tx(req)
+      const usedByTask = await tx.run(SELECT.one.from('nadec.e2e.HandoverTasks').where({ phase: id }))
+      const usedByTmpl = await tx.run(SELECT.one.from('nadec.e2e.HandoverTaskTemplates').where({ phase: id }))
+      if (usedByTask || usedByTmpl) {
+        return req.reject(409,
+          `Phase "${id}" is still used by ${usedByTask ? 'existing handover tasks' : 'the task template'}. ` +
+          'Move or remove those first, or hide the phase instead of deleting it.')
+      }
+    })
+    this.before('DELETE', 'CustomFieldDefs', async (req) => {
+      const key = req.params && req.params[req.params.length - 1]
+      const id = key && (key.ID !== undefined ? key.ID : key)
+      if (!id) return
+      const tx = cds.tx(req)
+      const used = await tx.run(SELECT.one.from('nadec.e2e.CustomFieldValues').where({ def_ID: id }))
+      if (used) {
+        return req.reject(409,
+          'This custom field already has saved values. ' +
+          'Hide it instead of deleting so no data is lost.')
+      }
     })
 
     // --- Auto-discard abandoned drafts (server-side safety net) ---------------
@@ -236,11 +412,81 @@ module.exports = class GovernanceService extends cds.ApplicationService {
       req.reject(403, 'Project sections can only be changed through the project — you cannot delete them directly.')
     })
 
-    this.before('NEW', 'Projects.drafts', (req) => {
+    // --- Lookup delete protection ---------------------------------------------
+    // Deleting a dropdown value that rows still reference would leave orphaned
+    // codes everywhere. Reflect over the model once: for each lookup entity,
+    // collect every persisted table + FK column that targets it; on DELETE,
+    // block with 409 while any referencing row (active or draft) exists.
+    // ASSUMPTIONS (revisit if the schema changes): every lookup reference is a
+    // *managed* association (el.keys present) and every lookup entity is keyed
+    // by `code`, so the FK column is always `<assocName>_code`.
+    const lookupRefs = {}   // 'nadec.e2e.lookup.X' -> [{ entity, fk }]
+    for (const def of Object.values(cds.model.definitions)) {
+      if (def.kind !== 'entity' || !def.elements) continue
+      if (!def.name.startsWith('nadec.e2e.') || def.query || def.projection) continue
+      for (const el of Object.values(def.elements)) {
+        if (el.type === 'cds.Association' && el.keys &&
+            el.target && el.target.startsWith('nadec.e2e.lookup.') &&
+            el.target !== def.name) {
+          (lookupRefs[el.target] = lookupRefs[el.target] || [])
+            .push({ entity: def.name, fk: el.name + '_code' })
+        }
+      }
+    }
+    const lookupEntityNames = Object.values(this.entities)
+      .filter((e) => {
+        const from = e.query && e.query.SELECT && e.query.SELECT.from
+        const src = from && from.ref && from.ref[0]
+        return typeof src === 'string' && src.startsWith('nadec.e2e.lookup.')
+      })
+      .map((e) => e.name.split('.').pop())
+
+    this.before('DELETE', lookupEntityNames, async (req) => {
+      const key = req.params && req.params[req.params.length - 1]
+      const code = (key && (key.code !== undefined ? key.code : key)) ||
+                   (req.data && req.data.code)
+      if (!code) return
+      const src = req.target.query.SELECT.from.ref[0]
+      const tx = cds.tx(req)
+      for (const ref of lookupRefs[src] || []) {
+        const targets = [ref.entity]
+        // Draft-enabled entities keep unsaved copies in a .drafts table too.
+        const short = ref.entity.split('.').pop()
+        if (this.entities[short] && this.entities[short].drafts) {
+          targets.push(this.entities[short].drafts.name)
+        }
+        for (const t of targets) {
+          const row = await tx.run(SELECT.one.from(t).where({ [ref.fk]: code }))
+          if (row) {
+            return req.reject(409,
+              `"${code}" is still used by at least one entry in ${short}. ` +
+              'Change or remove those entries first, then delete the value.')
+          }
+        }
+      }
+    })
+
+    this.before('NEW', 'Projects.drafts', async (req) => {
       // Belt-and-braces: creating a brand-new project draft is Manager-only
       // (the @restrict already blocks CREATE, this keeps the message friendly).
       if (!req.user.is('Manager')) {
-        req.reject(403, 'Only a Manager or Admin can create new projects.')
+        return req.reject(403, 'Only a Manager or Admin can create new projects.')
+      }
+      // Auto-assign the next sequential ID (PRJ-001, PRJ-002, …) so the user
+      // never has to invent one. Scans both active projects and open drafts
+      // so parallel unsaved drafts don't collide.
+      if (!req.data.ID) {
+        const tx = cds.tx(req)
+        const [active, drafts] = await Promise.all([
+          tx.run(SELECT.from('nadec.e2e.Projects').columns('ID')),
+          tx.run(SELECT.from('GovernanceService.Projects.drafts').columns('ID'))
+        ])
+        let max = 0
+        for (const row of [...active, ...drafts]) {
+          const m = /^PRJ-(\d+)$/i.exec(row.ID || '')
+          if (m) max = Math.max(max, parseInt(m[1], 10))
+        }
+        req.data.ID = 'PRJ-' + String(max + 1).padStart(3, '0')
       }
     })
 

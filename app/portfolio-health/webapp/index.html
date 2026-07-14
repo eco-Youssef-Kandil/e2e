@@ -132,10 +132,13 @@
         var oSectionsBox = new VBox({ width: "100%" });   // filled after load
         var oWorstTable = new Table({
           inset: false, growing: true, growingThreshold: 50,
+          popinLayout: "Block",
           columns: [
             new Column({ header: new Label({ text: "Project" }) }),
-            new Column({ header: new Label({ text: "IT Owner" }), minScreenWidth: "Tablet", demandPopin: true }),
-            new Column({ width: "16rem", header: new Label({ text: "Completeness" }) })
+            new Column({ header: new Label({ text: "IT Owner" }),
+              minScreenWidth: "820px", demandPopin: true }),
+            new Column({ width: "40%", header: new Label({ text: "Completeness" }),
+              minScreenWidth: "560px", demandPopin: true })
           ]
         });
 

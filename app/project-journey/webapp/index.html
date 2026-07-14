@@ -367,7 +367,7 @@
 
     function goLiveStatus(p) {
       var gate = p.goLive ? num(p.goLive.readinessPct) : null;
-      if (p.actualGoLiveDate) return { color: "#2e7d32", label: "Live", desc: "Went live on " + p.actualGoLiveDate + "." };
+      if (p.actualGoLiveDate) return { color: "#2e7d32", label: "Live 🎉", desc: "Went live on " + p.actualGoLiveDate + "." };
       if (gate !== null && gate >= 100) return { color: "#2e7d32", label: "Gate cleared", desc: "All 8 go-live checks passed — ready to launch." };
       if (gate !== null && gate > 0) return { color: "#e58c00", label: "Gate " + Math.round(gate) + "%", desc: "Go-live checklist in progress (" + Math.round(gate) + "% of checks passed)." };
       return { color: "#9aa8b5", label: "Not Started", desc: "Go-live checklist not started yet." };

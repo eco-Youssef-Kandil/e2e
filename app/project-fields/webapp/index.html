@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NADEC E2E — Project Fields</title>
+
+  <style>
+    :root {
+      --nadec-blue: #0033A0;
+      --nadec-blue-dark: #002673;
+      --ink: #1d2d3e;
+      --muted: #5b6b7b;
+      --line: #d9e1e8;
+      --bg: #eef3f7;
+      --green: #2e7d32;
+      --red: #c62828;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0; min-height: 100%;
+      font-family: "72", "72full", Arial, Helvetica, sans-serif;
+      color: var(--ink);
+      background: linear-gradient(180deg, #eaf1fb 0%, #eef3f7 40%, #e7f0f7 100%);
+    }
+    #topBar {
+      position: fixed; top: 0; left: 0; right: 0; height: 48px; z-index: 1000;
+      display: flex; align-items: center; gap: 12px; padding: 0 16px;
+      background: linear-gradient(135deg, var(--nadec-blue), var(--nadec-blue-dark));
+      color: #fff; box-shadow: 0 2px 4px rgba(0,0,0,0.18); font-size: 13px;
+    }
+    #topBar .ghost {
+      padding: 5px 12px; font-size: 13px; font-weight: 600; color: #fff; cursor: pointer;
+      background: rgba(255,255,255,0.14); border: 1px solid rgba(255,255,255,0.5); border-radius: 6px;
+    }
+    #topBar .title { font-weight: 600; font-size: 15px; letter-spacing: 0.3px; white-space: nowrap; }
+    #topBar .spacer { flex: 1 1 auto; }
+    #topBar .who { opacity: 0.85; white-space: nowrap; }
+    #topBar .signout {
+      padding: 5px 14px; font-size: 13px; font-weight: 600; color: var(--nadec-blue); cursor: pointer;
+      background: #fff; border: 1px solid #fff; border-radius: 6px;
+    }
+
+    #content { padding: 66px 20px 40px; max-width: 980px; margin: 0 auto; display: none; }
+
+    #hero {
+      background: #fff; border: 1px solid var(--line); border-radius: 14px;
+      box-shadow: 0 4px 16px rgba(13,40,70,0.07);
+      padding: 18px 22px; margin-bottom: 18px;
+    }
+    #hero .row1 { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; }
+    #hero h1 { font-size: 20px; margin: 0; font-weight: 700; }
+    #hero h1 small { display: block; font-size: 12px; color: var(--muted); font-weight: 400; margin-top: 2px; }
+    #hero .nav { display: flex; gap: 8px; align-items: center; margin-left: auto; }
+    #projPicker {
+      min-width: 280px; max-width: 420px; padding: 9px 12px; font-size: 14px; font-weight: 600;
+      color: var(--ink); border: 2px solid var(--nadec-blue); border-radius: 10px; background: #fff; cursor: pointer;
+    }
+    .navBtn {
+      width: 36px; height: 36px; border-radius: 10px; border: 1px solid var(--line);
+      background: #fff; font-size: 16px; cursor: pointer; color: var(--nadec-blue); font-weight: 700;
+    }
+    .navBtn:disabled { opacity: 0.35; cursor: default; }
+    #openWs {
+      padding: 9px 16px; font-size: 13px; font-weight: 700; color: #fff; cursor: pointer;
+      background: var(--nadec-blue); border: none; border-radius: 10px; white-space: nowrap; margin-left: auto;
+    }
+    #openWs:hover { background: var(--nadec-blue-dark); }
+
+    .card {
+      background: #fff; border: 1px solid var(--line); border-radius: 14px;
+      box-shadow: 0 4px 16px rgba(13,40,70,0.07);
+      padding: 18px 22px; margin-bottom: 18px;
+    }
+    .card h2 { font-size: 15px; margin: 0 0 4px; }
+    .card .sub { font-size: 12px; color: var(--muted); margin: 0 0 14px; }
+
+    .fieldGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 18px; }
+    .fld { display: flex; flex-direction: column; gap: 5px; }
+    .fld label { font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.4px; }
+    .fld input, .fld select, .fld textarea {
+      font-family: inherit; font-size: 14px; color: var(--ink);
+      border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; background: #fff;
+    }
+    .fld input:focus, .fld select:focus, .fld textarea:focus { outline: none; border-color: var(--nadec-blue); }
+    .fld textarea { min-height: 74px; resize: vertical; }
+    .fld .ro {
+      font-size: 14px; color: var(--ink); padding: 8px 10px; background: #f5f8fb;
+      border: 1px solid var(--line); border-radius: 8px; min-height: 37px; word-break: break-word;
+    }
+
+    #saveHint {
+      position: fixed; right: 18px; bottom: 18px; z-index: 1100;
+      background: var(--green); color: #fff; font-size: 13px; font-weight: 600;
+      padding: 8px 14px; border-radius: 8px; opacity: 0; transition: opacity 0.25s ease;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+    }
+    .empty { color: var(--muted); font-size: 13px; margin: 0; }
+
+    /* Required custom fields left empty */
+    .cf-missing { border-color: var(--red) !important; background: #fff5f5 !important; }
+    #reqBanner { display: none; }
+    .reqBanner {
+      background: #fff5f5; border: 1px solid #f0c4c4; border-left: 4px solid var(--red);
+      color: #8a2a2a; border-radius: 12px; padding: 13px 18px; margin-bottom: 14px; font-size: 13px;
+    }
+    .reqBanner strong { color: var(--red); }
+    .reqBanner ul { margin: 8px 0 0; padding-left: 20px; }
+    .reqBanner li { margin: 2px 0; }
+
+    #loading, #error { margin-top: 100px; text-align: center; color: var(--muted); font-size: 15px; }
+    #error { color: #c62828; display: none; }
+  </style>
+
+  <script>
+    (function () {
+      if (!sessionStorage.getItem("e2e-auth")) {
+        window.location.replace("../../project-portal/webapp/login.html");
+      }
+    })();
+  </script>
+</head>
+<body>
+  <div id="topBar">
+    <button class="ghost" id="backBtn">← Portal</button>
+    <span class="title">Project Fields</span>
+    <div class="spacer"></div>
+    <span class="who" id="who"></span>
+    <button class="signout" id="signoutBtn">Sign out</button>
+  </div>
+
+  <div id="content">
+    <div id="hero">
+      <div class="row1">
+        <h1 id="projTitle"><span id="projName">—</span><small id="projSub"></small></h1>
+        <div class="nav">
+          <button class="navBtn" id="prevBtn" title="Previous project">‹</button>
+          <select id="projPicker"></select>
+          <button class="navBtn" id="nextBtn" title="Next project">›</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" id="customCard">
+      <h2>Custom fields</h2>
+      <p class="sub">Extra project fields defined by your managers. Changes save automatically.</p>
+      <div id="reqBanner"></div>
+      <div id="customArea"></div>
+    </div>
+
+    <div class="card" id="builtinCard">
+      <h2>Project details</h2>
+      <p class="sub">Core project fields (managed in the Project Portal). Shown here for reference.</p>
+      <div id="builtinArea"></div>
+    </div>
+  </div>
+
+  <div id="saveHint">Saved</div>
+  <div id="loading">Loading project fields…</div>
+  <div id="error"></div>
+
+  <script>
+    "use strict";
+
+    var userName = sessionStorage.getItem("e2e-user-name") || "";
+    var userRole = sessionStorage.getItem("e2e-user-role") || "";
+    document.getElementById("who").textContent = userName + (userRole ? " · " + userRole : "");
+    document.getElementById("backBtn").onclick = function () {
+      window.location.href = "../../project-portal/webapp/index.html";
+    };
+    document.getElementById("signoutBtn").onclick = function () {
+      sessionStorage.removeItem("e2e-auth");
+      sessionStorage.removeItem("e2e-user-name");
+      sessionStorage.removeItem("e2e-user-role");
+      window.location.replace("../../project-portal/webapp/login.html");
+    };
+
+    function esc(s) {
+      return String(s === null || s === undefined ? "" : s)
+        .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+    }
+
+    var AUTH = sessionStorage.getItem("e2e-auth");
+    function odata(path, opts) {
+      opts = opts || {};
+      var headers = { Authorization: AUTH };
+      if (opts.body) { headers["Content-Type"] = "application/json"; }
+      return fetch("/governance/" + path, {
+        method: opts.method || "GET",
+        headers: headers,
+        body: opts.body ? JSON.stringify(opts.body) : undefined
+      }).then(function (r) {
+        if (r.status === 401) {
+          sessionStorage.removeItem("e2e-auth");
+          window.location.replace("../../project-portal/webapp/login.html");
+          throw new Error("Not authorized");
+        }
+        if (!r.ok) {
+          return r.text().then(function (t) {
+            var msg = "Request failed: " + r.status;
+            try { var j = JSON.parse(t); if (j.error && j.error.message) { msg = j.error.message; } } catch (e) {}
+            var err = new Error(msg); err.status = r.status; throw err;
+          });
+        }
+        if (r.status === 204) { return null; }
+        return r.json();
+      });
+    }
+
+    function showSaved() {
+      var el = document.getElementById("saveHint");
+      el.style.opacity = "1";
+      clearTimeout(showSaved._t);
+      showSaved._t = setTimeout(function () { el.style.opacity = "0"; }, 1500);
+    }
+    function showError(err) {
+      alert("Could not save: " + (err && err.message ? err.message : "unknown error"));
+    }
+
+    // ---- Data --------------------------------------------------------------------
+    var PROJECTS = [], DEFS = [], HIDDEN = {}, CF_VALUES = {};
+    var current = 0;
+
+    // Built-in Project fields we render read-only, honoring visibility config.
+    // "field" matches the visibility key used by Manage Lists; "get" pulls the
+    // display value off the expanded project record.
+    var BUILTINS = [
+      { field: "itOwner",       label: "IT Owner",             get: function (p) { return assoc(p.itOwner); } },
+      { field: "workCategory",  label: "Work Category",        get: function (p) { return assoc(p.workCategory); } },
+      { field: "domain",        label: "Business Domain",      get: function (p) { return assoc(p.domain); } },
+      { field: "requester",     label: "Division / Department", get: function (p) { return assoc(p.requester); } },
+      { field: "businessOwner", label: "Business Owner",       get: function (p) { return assoc(p.businessOwner); } },
+      { field: "priority",      label: "Priority",             get: function (p) { return assoc(p.priority); } },
+      { field: "phase",         label: "Current Phase",        get: function (p) { return assoc(p.phase); } },
+      { field: "riskLevel",     label: "Risk Level",           get: function (p) { return assoc(p.riskLevel); } },
+      { field: "startDate",     label: "Start Date",           get: function (p) { return p.startDate; } },
+      { field: "targetGoLive",  label: "Target Go-Live",       get: function (p) { return p.targetGoLiveDate; } },
+      { field: "actualGoLive",  label: "Actual Go-Live",       get: function (p) { return p.actualGoLiveDate; } },
+      { field: "notes",         label: "Notes",                get: function (p) { return p.notes; } }
+    ];
+    function assoc(a) { return a && a.name ? a.name : ""; }
+    function isHidden(field) { return !!HIDDEN["Project|" + field]; }
+
+    Promise.all([
+      odata("Projects?$select=ID,name,notes,startDate,targetGoLiveDate,actualGoLiveDate" +
+            "&$expand=itOwner($select=name),workCategory($select=name),domain($select=name)," +
+            "requester($select=name),businessOwner($select=name),priority($select=name)," +
+            "phase($select=name),riskLevel($select=name)" +
+            "&$filter=IsActiveEntity eq true&$orderby=ID&$top=5000"),
+      odata("CustomFieldDefs?$filter=active eq true and target eq 'Project'&$orderby=sort&$top=500"),
+      odata("FieldVisibility?$filter=hidden eq true&$top=500")
+    ]).then(function (res) {
+      PROJECTS = res[0].value || [];
+      DEFS = res[1].value || [];
+      HIDDEN = {};
+      (res[2].value || []).forEach(function (v) { HIDDEN[v.target + "|" + v.field] = !!v.hidden; });
+
+      if (!PROJECTS.length) throw new Error("No projects found");
+      document.getElementById("loading").style.display = "none";
+      document.getElementById("content").style.display = "";
+      buildPicker();
+
+      var want = new URLSearchParams(window.location.search).get("project");
+      var idx = PROJECTS.findIndex(function (p) { return p.ID === want; });
+      show(idx >= 0 ? idx : 0);
+    }).catch(function (err) {
+      document.getElementById("loading").style.display = "none";
+      var e = document.getElementById("error");
+      e.style.display = "";
+      e.textContent = "Could not load project fields: " + (err && err.message ? err.message : "unknown error");
+    });
+
+    function buildPicker() {
+      var sel = document.getElementById("projPicker");
+      sel.innerHTML = PROJECTS.map(function (p, i) {
+        return '<option value="' + i + '">' + esc(p.ID + " — " + (p.name || "")) + "</option>";
+      }).join("");
+      sel.onchange = function () { show(Number(sel.value)); };
+      document.getElementById("prevBtn").onclick = function () { if (current > 0) show(current - 1); };
+      document.getElementById("nextBtn").onclick = function () { if (current < PROJECTS.length - 1) show(current + 1); };
+    }
+
+    // ---- Custom-field helpers (mirror the Handover page) --------------------------
+    function cfVal(defID, recordKey) {
+      var v = CF_VALUES[defID + "|" + recordKey];
+      return v === null || v === undefined ? "" : String(v);
+    }
+    function cfLabel(def) { return esc(def.label) + (def.required ? " *" : ""); }
+    function cfControl(def, recordKey) {
+      var v = cfVal(def.ID, recordKey);
+      var missing = def.required && String(v).trim() === "";
+      var attrs = 'data-cf="' + esc(def.ID) + '" data-cf-rec="' + esc(recordKey) + '"' +
+        (def.required ? ' data-cf-req="1" data-cf-label="' + esc(def.label) + '"' : "") +
+        (missing ? ' class="cf-missing"' : "");
+      switch (def.fieldType) {
+        case "textarea":
+          return '<textarea ' + attrs + ' maxlength="2000" placeholder="…">' + esc(v) + "</textarea>";
+        case "number":
+          return '<input type="number" step="any" ' + attrs + ' value="' + esc(v) + '">';
+        case "date":
+          return '<input type="date" ' + attrs + ' value="' + esc(v) + '">';
+        case "boolean":
+          return '<select ' + attrs + '><option value=""' + (v === "" ? " selected" : "") + ">—</option>" +
+            '<option value="true"' + (v === "true" ? " selected" : "") + ">Yes</option>" +
+            '<option value="false"' + (v === "false" ? " selected" : "") + ">No</option></select>";
+        case "select": {
+          var opts = String(def.options || "").split(/\r?\n/)
+            .map(function (s) { return s.trim(); }).filter(Boolean);
+          return '<select ' + attrs + '><option value=""' + (v === "" ? " selected" : "") + ">—</option>" +
+            opts.map(function (o) {
+              return '<option value="' + esc(o) + '"' + (o === v ? " selected" : "") + ">" + esc(o) + "</option>";
+            }).join("") + "</select>";
+        }
+        default:
+          return '<input type="text" ' + attrs + ' maxlength="2000" value="' + esc(v) + '">';
+      }
+    }
+    function wireCustomFields(area) {
+      Array.prototype.slice.call(area.querySelectorAll("[data-cf]")).forEach(function (el) {
+        el.onchange = function () {
+          var defID = el.getAttribute("data-cf");
+          var rec = el.getAttribute("data-cf-rec");
+          var val = el.value;
+          el.disabled = true;
+          odata("saveCustomFieldValue", { method: "POST", body: {
+            def_ID: defID, recordKey: rec, value: val === "" ? null : val
+          }})
+            .then(function () { CF_VALUES[defID + "|" + rec] = val; showSaved(); })
+            .catch(showError)
+            .then(function () { el.disabled = false; updateRequiredHint(); });
+        };
+      });
+    }
+
+    // Flag empty required custom fields and surface a non-blocking banner listing
+    // them. Runs after each render and after each inline save.
+    function updateRequiredHint() {
+      var missing = [];
+      Array.prototype.slice.call(document.querySelectorAll('[data-cf-req="1"]')).forEach(function (el) {
+        var empty = (el.value == null ? "" : String(el.value)).trim() === "";
+        el.classList.toggle("cf-missing", empty);
+        if (empty) { missing.push(el.getAttribute("data-cf-label") || "Required field"); }
+      });
+      var banner = document.getElementById("reqBanner");
+      if (!banner) { return; }
+      if (!missing.length) { banner.style.display = "none"; banner.innerHTML = ""; return; }
+      banner.className = "reqBanner";
+      banner.style.display = "block";
+      banner.innerHTML =
+        "<strong>" + missing.length + " required field" + (missing.length === 1 ? "" : "s") +
+        " still need" + (missing.length === 1 ? "s" : "") + " a value.</strong> Please fill in:" +
+        "<ul>" + missing.map(function (m) { return "<li>" + esc(m) + "</li>"; }).join("") + "</ul>";
+    }
+
+    function loadCustomValues(recordKey) {
+      CF_VALUES = {};
+      if (!DEFS.length) { return Promise.resolve(); }
+      var filter = "recordKey eq '" + String(recordKey).replace(/'/g, "''") + "'";
+      return odata("CustomFieldValues?$select=def_ID,recordKey,value&$filter=" +
+        encodeURIComponent(filter) + "&$top=5000")
+        .then(function (res) {
+          (res.value || []).forEach(function (v) { CF_VALUES[v.def_ID + "|" + v.recordKey] = v.value; });
+        })
+        .catch(function () { /* non-fatal */ });
+    }
+
+    // ---- Show a project ----------------------------------------------------------
+    function show(i) {
+      current = i;
+      var p = PROJECTS[i];
+      document.getElementById("projPicker").value = String(i);
+      document.getElementById("prevBtn").disabled = i === 0;
+      document.getElementById("nextBtn").disabled = i === PROJECTS.length - 1;
+      document.getElementById("projName").textContent = p.ID + " — " + (p.name || "");
+      document.getElementById("projSub").textContent =
+        (p.phase && p.phase.name ? "Phase: " + p.phase.name : "");
+      try {
+        var url = new URL(window.location.href);
+        url.searchParams.set("project", p.ID);
+        window.history.replaceState(null, "", url.toString());
+      } catch (e) {}
+
+      renderBuiltins(p);
+      loadCustomValues(p.ID).then(function () { renderCustom(p); });
+    }
+
+    function renderBuiltins(p) {
+      var visible = BUILTINS.filter(function (b) { return !isHidden(b.field); });
+      var area = document.getElementById("builtinArea");
+      if (!visible.length) {
+        area.innerHTML = '<p class="empty">All core fields are hidden by your managers.</p>';
+        return;
+      }
+      area.innerHTML = '<div class="fieldGrid">' + visible.map(function (b) {
+        var val = b.get(p);
+        var span = (b.field === "notes") ? ' style="grid-column:1/-1"' : "";
+        return '<div class="fld"' + span + "><label>" + esc(b.label) + "</label>" +
+          '<div class="ro">' + (val === null || val === undefined || val === "" ? "—" : esc(val)) + "</div></div>";
+      }).join("") + "</div>";
+    }
+
+    function renderCustom(p) {
+      var area = document.getElementById("customArea");
+      if (!DEFS.length) {
+        area.innerHTML = '<p class="empty">No custom project fields defined yet. Managers can add them in Manage Lists → Custom fields.</p>';
+        return;
+      }
+      area.innerHTML = '<div class="fieldGrid">' + DEFS.map(function (d) {
+        var span = (d.fieldType === "textarea") ? ' style="grid-column:1/-1"' : "";
+        return '<div class="fld"' + span + "><label>" + cfLabel(d) + "</label>" + cfControl(d, p.ID) + "</div>";
+      }).join("") + "</div>";
+      wireCustomFields(area);
+      updateRequiredHint();
+    }
+  </script>
+  <script src="/shared/nav.js"></script>
+  <script src="/shared/searchselect.js"></script>
+</body>
+</html>

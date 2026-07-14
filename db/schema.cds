@@ -240,14 +240,9 @@ entity HandoverPlans : managed {
       targetDate : Date;                                  // planned handover date
       actualDate : Date;                                  // when sign-off happened
       fromOwner  : Association to lookup.Employees;       // handing over (delivery)
-      toOwners   : Composition of many HandoverReceivers on toOwners.plan = $self;
+      toOwner    : Association to lookup.Employees;       // receiving (support)
       notes      : String(1000);
       tasks      : Composition of many HandoverTasks on tasks.plan = $self;
-}
-
-entity HandoverReceivers : cuid {
-  plan     : Association to HandoverPlans;
-  employee : Association to lookup.Employees;
 }
 
 entity HandoverTasks : cuid, managed {
@@ -259,6 +254,57 @@ entity HandoverTasks : cuid, managed {
       status  : Association to lookup.StageStatuses;
       sort    : Integer default 0;
       notes   : String(500);
+}
+
+// ---------------------------------------------------------------------------
+// Configurable handover phases & task template (manager-editable). These
+// replace the previously hardcoded phase list and createHandoverPlan template
+// so the handover process can evolve without code changes. `active` lets a
+// phase/task be hidden without deleting it (safe alternative to removal).
+// ---------------------------------------------------------------------------
+aspect activatable {
+  active : Boolean default true;   // false = hidden, not deleted
+}
+
+entity HandoverPhases : managed, activatable {
+  key ID          : String(60);        // stable key; the value stored on HandoverTasks.phase
+      name        : String(120);       // display name (renameable)
+      description : String(500);
+      sort        : Integer default 0;
+}
+
+entity HandoverTaskTemplates : cuid, managed, activatable {
+      phase : String(60);              // = HandoverPhases.ID
+      title : String(200);
+      sort  : Integer default 0;
+}
+
+// ---------------------------------------------------------------------------
+// Custom fields — brand-new, manager-defined fields for the surfaces we
+// control (Projects editor, Handover plan, Handover tasks). Values live in a
+// generic key/value store so no schema change is needed per new field.
+// ---------------------------------------------------------------------------
+entity CustomFieldDefs : cuid, managed, activatable {
+      target    : String(20);          // 'Project' | 'HandoverPlan' | 'HandoverTask'
+      label     : String(120);
+      fieldType : String(20);          // text | textarea | number | date | boolean | select
+      options   : String(2000);        // select choices, one per line
+      sort      : Integer default 0;
+      required  : Boolean default false;
+      values    : Composition of many CustomFieldValues on values.def = $self;
+}
+
+entity CustomFieldValues : cuid, managed {
+      def       : Association to CustomFieldDefs;
+      recordKey : String(120);         // Projects.ID | HandoverPlans.project_ID | HandoverTasks.ID
+      value     : String(2000);
+}
+
+// Visibility of BUILT-IN fields on surfaces we control (hide without code).
+entity FieldVisibility {
+  key target : String(20);             // 'Project' | 'HandoverPlan' | 'HandoverTask'
+  key field  : String(60);             // built-in field name
+      hidden : Boolean default false;
 }
 
 // ---------------------------------------------------------------------------

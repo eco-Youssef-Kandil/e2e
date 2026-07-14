@@ -38,7 +38,6 @@
       var token = sessionStorage.getItem("e2e-auth");
       var role  = sessionStorage.getItem("e2e-user-role");
       if (!token) { window.location.replace("../../project-portal/webapp/login.html"); return; }
-      // Manager & Admin may manage the lists (Admin inherits Manager rights).
       if (role !== "Manager" && role !== "Admin") { window.location.replace("../../project-portal/webapp/index.html"); return; }
     })();
   </script>
@@ -121,12 +120,18 @@
         "sap/f/FlexibleColumnLayout",
         "sap/m/Page",
         "sap/m/Dialog",
-        "sap/ui/layout/form/SimpleForm"
+        "sap/ui/layout/form/SimpleForm",
+        "sap/m/Select",
+        "sap/m/ComboBox",
+        "sap/ui/core/Item",
+        "sap/m/Switch",
+        "sap/m/TextArea",
+        "sap/m/CheckBox"
       ], function (ODataModel, JSONModel, Filter, FilterOperator, Sorter, MessageToast, MessageBox,
                    Button, Input, StepInput, Label, Title, Text, ObjectStatus, SearchField,
                    List, StandardListItem, GroupHeaderListItem, Table, Column, ColumnListItem,
                    Toolbar, OverflowToolbar, ToolbarSpacer, IllustratedMessage, FlexibleColumnLayout, Page,
-                   Dialog, SimpleForm) {
+                   Dialog, SimpleForm, Select, ComboBox, Item, Switch, TextArea, CheckBox) {
         "use strict";
 
         // ---- Brand top bar (plain DOM, same look as the portal) ----------
@@ -165,9 +170,64 @@
           httpHeaders: { Authorization: sessionStorage.getItem("e2e-auth") }
         });
 
+        // Manager-only handover / custom-field configuration surfaces. These
+        // are NOT simple code lists — each opens a purpose-built editor in the
+        // right panel (handled via item.special below).
+        var CONFIG = [
+          { label: "Handover Phases",            special: "phases",     group: "Handover configuration", hint: "Add / rename / reorder / hide the phases of the handover" },
+          { label: "Handover Task Template",     special: "template",   group: "Handover configuration", hint: "The default checklist tasks created for a new handover" },
+          { label: "Custom Fields",              special: "customfields", group: "Custom fields", hint: "Create your own fields for projects, plans and tasks" },
+          { label: "Built-in Field Visibility",  special: "visibility", group: "Custom fields", hint: "Hide built-in fields you don't use" }
+        ];
+
+        // Friendly names for the custom-field targets + built-in field catalogue
+        // (used by the custom-fields editor and the visibility matrix).
+        var TARGETS = [
+          { key: "Project",      text: "Project" },
+          { key: "HandoverPlan", text: "Handover Plan" },
+          { key: "HandoverTask", text: "Handover Task" }
+        ];
+        var FIELD_TYPES = [
+          { key: "text",     text: "Short text" },
+          { key: "textarea", text: "Long text" },
+          { key: "number",   text: "Number" },
+          { key: "date",     text: "Date" },
+          { key: "boolean",  text: "Yes / No" },
+          { key: "select",   text: "Single-select" }
+        ];
+        // Built-in fields we allow hiding, per surface we render ourselves.
+        var BUILTIN_FIELDS = {
+          Project: [
+            { field: "itOwner",         label: "IT Owner" },
+            { field: "workCategory",    label: "Work Category" },
+            { field: "domain",          label: "Business Domain" },
+            { field: "requester",       label: "Division / Department" },
+            { field: "businessOwner",   label: "Business Owner" },
+            { field: "priority",        label: "Priority" },
+            { field: "phase",           label: "Current Phase" },
+            { field: "riskLevel",       label: "Risk Level" },
+            { field: "startDate",       label: "Start Date" },
+            { field: "targetGoLive",    label: "Target Go-Live" },
+            { field: "actualGoLive",    label: "Actual Go-Live" },
+            { field: "notes",           label: "Notes" }
+          ],
+          HandoverPlan: [
+            { field: "status",     label: "Status" },
+            { field: "targetDate", label: "Target Date" },
+            { field: "actualDate", label: "Actual Date" },
+            { field: "fromOwner",  label: "Handover From" },
+            { field: "toOwner",    label: "Handover To" },
+            { field: "notes",      label: "Notes" }
+          ],
+          HandoverTask: [
+            { field: "owner",   label: "Owner" },
+            { field: "dueDate", label: "Due Date" }
+          ]
+        };
+
         // A JSON model holds the catalogue of lists (left panel) so we can
         // search / group it without round-trips.
-        var oCatalog = new JSONModel({ lists: LISTS });
+        var oCatalog = new JSONModel({ lists: LISTS.concat(CONFIG) });
 
         var current = null;          // the selected LISTS entry
         var oEntriesBinding = null;  // the right-table items binding
@@ -197,7 +257,10 @@
           growing: false,
           selectionChange: function (e) {
             var ctx = e.getParameter("listItem").getBindingContext("cat");
-            if (ctx) { selectList(ctx.getObject()); }
+            if (!ctx) { return; }
+            var item = ctx.getObject();
+            if (item.special) { renderSpecial(item); }
+            else { selectList(item); }
           }
         });
         oCatalogList.setModel(oCatalog, "cat");
@@ -449,6 +512,402 @@
         }
 
         // =================================================================
+        // SPECIAL EDITORS — handover phases / template / custom fields / vis.
+        // =================================================================
+        // A JSON model of the active phases, kept fresh so the "template" and
+        // "custom fields" editors can offer phase pickers.
+        var oPhasesModel = new JSONModel({ phases: [] });
+        function reloadPhases() {
+          return fetch("/governance/HandoverPhases?$select=ID,name&$orderby=sort", {
+            headers: { Authorization: sessionStorage.getItem("e2e-auth") }
+          }).then(function (r) { return r.json(); }).then(function (d) {
+            oPhasesModel.setData({ phases: (d && d.value) || [] });
+          }).catch(function () { /* leave empty */ });
+        }
+
+        // Shared helper: submit pending inline edits + toast.
+        function saveInline() {
+          oModel.submitBatch("$auto").then(function () {
+            MessageToast.show("Saved", { duration: 900 });
+          }).catch(function (err) {
+            MessageBox.error("Could not save: " + msg(err));
+          });
+        }
+
+        // Generic delete for special-editor rows (OData context delete).
+        function deleteCtx(ctx, name, thing) {
+          if (!ctx) { return; }
+          MessageBox.confirm(
+            "Delete " + thing + " “" + (name || "") + "”?",
+            {
+              title: "Delete",
+              emphasizedAction: MessageBox.Action.OK,
+              onClose: function (a) {
+                if (a !== MessageBox.Action.OK) { return; }
+                ctx.delete().then(function () {
+                  MessageToast.show("Deleted");
+                }).catch(function (err) {
+                  MessageBox.error(msg(err));
+                });
+              }
+            }
+          );
+        }
+
+        // Route a special catalogue item to its editor.
+        function renderSpecial(item) {
+          oDetailTitle.setText(item.label);
+          oCountStatus.setText("");
+          reloadPhases();
+          if (item.special === "phases")       { renderPhases(); }
+          else if (item.special === "template") { renderTemplate(); }
+          else if (item.special === "customfields") { renderCustomFields(); }
+          else if (item.special === "visibility")   { renderVisibility(); }
+          oFCL.setLayout("TwoColumnsMidExpanded");
+        }
+
+        // ---- Editor 1: Handover Phases ----------------------------------
+        function renderPhases() {
+          var addBtn = new Button({
+            text: "Add phase", icon: "sap-icon://add", type: "Emphasized",
+            press: addPhase
+          });
+          oDetail.setCustomHeader(new OverflowToolbar({
+            content: [ oDetailTitle, new ToolbarSpacer(), addBtn ]
+          }));
+          var tbl = new Table({
+            growing: true, fixedLayout: false,
+            noData: "No phases yet — add the first one.",
+            columns: [
+              new Column({ width: "10rem", header: new Label({ text: "Name" }) }),
+              new Column({ header: new Label({ text: "Description" }) }),
+              new Column({ width: "8rem", hAlign: "Center", header: new Label({ text: "Order" }) }),
+              new Column({ width: "6rem", hAlign: "Center", header: new Label({ text: "Active" }) }),
+              new Column({ width: "4rem", hAlign: "Right", header: new Label({ text: "" }) })
+            ]
+          });
+          tbl.setModel(oModel);
+          tbl.bindItems({
+            path: "/HandoverPhases",
+            parameters: { $$updateGroupId: "$auto" },
+            sorter: [ new Sorter("sort", false) ],
+            template: new ColumnListItem({
+              cells: [
+                new Input({ value: "{name}", change: saveInline }),
+                new Input({ value: "{description}", change: saveInline }),
+                new StepInput({ value: "{sort}", min: 0, max: 9999, step: 10, width: "7rem", change: saveInline }),
+                new Switch({ state: "{active}", change: saveInline }),
+                new Button({ icon: "sap-icon://delete", type: "Transparent", tooltip: "Delete phase",
+                  press: function (e) {
+                    var ctx = e.getSource().getBindingContext();
+                    deleteCtx(ctx, ctx.getProperty("name"), "phase");
+                  } })
+              ]
+            })
+          });
+          oDetail.removeAllContent();
+          oDetail.addContent(tbl);
+        }
+
+        function addPhase() {
+          var inId = new Input({ placeholder: "e.g. Preparation (stable key, can't change later)", maxLength: 60 });
+          var inName = new Input({ placeholder: "What users see" });
+          var inDesc = new Input({ placeholder: "Optional" });
+          var dlg = new Dialog({
+            title: "Add phase", contentWidth: "26rem",
+            content: [ new SimpleForm({ editable: true, content: [
+              new Label({ text: "Key" }), inId,
+              new Label({ text: "Name" }), inName,
+              new Label({ text: "Description" }), inDesc
+            ] }) ],
+            beginButton: new Button({ text: "Create", type: "Emphasized", press: function () {
+              var id = (inId.getValue() || "").trim();
+              var nm = (inName.getValue() || "").trim() || id;
+              if (!id) { inId.setValueState("Error").setValueStateText("Key is required"); return; }
+              var b = oDetail.getContent()[0].getBinding("items");
+              var nextSort = (b.getLength() + 1) * 10;
+              b.create({ ID: id, name: nm, description: inDesc.getValue() || "", sort: nextSort, active: true }, false, true);
+              oModel.submitBatch("$auto").then(function () {
+                MessageToast.show("Added"); reloadPhases();
+              }).catch(function (err) { MessageBox.error(msg(err)); });
+              dlg.close();
+            } }),
+            endButton: new Button({ text: "Cancel", press: function () { dlg.close(); } }),
+            afterClose: function () { dlg.destroy(); }
+          });
+          dlg.open();
+        }
+
+        // ---- Editor 2: Handover Task Template ---------------------------
+        function renderTemplate() {
+          var addBtn = new Button({
+            text: "Add task", icon: "sap-icon://add", type: "Emphasized",
+            press: addTemplateTask
+          });
+          oDetail.setCustomHeader(new OverflowToolbar({
+            content: [ oDetailTitle, new ToolbarSpacer(), addBtn ]
+          }));
+          var tbl = new Table({
+            growing: true, fixedLayout: false,
+            noData: "No template tasks yet — add the first one.",
+            columns: [
+              new Column({ width: "14rem", header: new Label({ text: "Phase" }) }),
+              new Column({ header: new Label({ text: "Task title" }) }),
+              new Column({ width: "8rem", hAlign: "Center", header: new Label({ text: "Order" }) }),
+              new Column({ width: "6rem", hAlign: "Center", header: new Label({ text: "Active" }) }),
+              new Column({ width: "4rem", hAlign: "Right", header: new Label({ text: "" }) })
+            ]
+          });
+          tbl.setModel(oModel);
+          tbl.setModel(oPhasesModel, "ph");
+          tbl.bindItems({
+            path: "/HandoverTaskTemplates",
+            parameters: { $$updateGroupId: "$auto" },
+            sorter: [ new Sorter("phase", false, false), new Sorter("sort", false) ],
+            template: new ColumnListItem({
+              cells: [
+                new Select({
+                  selectedKey: "{phase}", forceSelection: false, width: "13rem",
+                  items: { path: "ph>/phases", template: new Item({ key: "{ph>ID}", text: "{ph>name}" }) },
+                  change: saveInline
+                }),
+                new Input({ value: "{title}", change: saveInline }),
+                new StepInput({ value: "{sort}", min: 0, max: 9999, step: 10, width: "7rem", change: saveInline }),
+                new Switch({ state: "{active}", change: saveInline }),
+                new Button({ icon: "sap-icon://delete", type: "Transparent", tooltip: "Delete task",
+                  press: function (e) {
+                    var ctx = e.getSource().getBindingContext();
+                    deleteCtx(ctx, ctx.getProperty("title"), "task");
+                  } })
+              ]
+            })
+          });
+          oDetail.removeAllContent();
+          oDetail.addContent(tbl);
+        }
+
+        function addTemplateTask() {
+          var selPhase = new Select({ width: "100%", forceSelection: false });
+          selPhase.setModel(oPhasesModel, "ph");
+          selPhase.bindItems({ path: "ph>/phases", template: new Item({ key: "{ph>ID}", text: "{ph>name}" }) });
+          var inTitle = new Input({ placeholder: "e.g. Prepare handover document" });
+          var dlg = new Dialog({
+            title: "Add template task", contentWidth: "26rem",
+            content: [ new SimpleForm({ editable: true, content: [
+              new Label({ text: "Phase" }), selPhase,
+              new Label({ text: "Task title" }), inTitle
+            ] }) ],
+            beginButton: new Button({ text: "Create", type: "Emphasized", press: function () {
+              var ph = selPhase.getSelectedKey();
+              var t = (inTitle.getValue() || "").trim();
+              if (!ph) { selPhase.setValueState("Error"); return; }
+              if (!t) { inTitle.setValueState("Error").setValueStateText("Title is required"); return; }
+              var b = oDetail.getContent()[0].getBinding("items");
+              var nextSort = (b.getLength() + 1) * 10;
+              b.create({ phase: ph, title: t, sort: nextSort, active: true }, false, true);
+              oModel.submitBatch("$auto").then(function () {
+                MessageToast.show("Added");
+              }).catch(function (err) { MessageBox.error(msg(err)); });
+              dlg.close();
+            } }),
+            endButton: new Button({ text: "Cancel", press: function () { dlg.close(); } }),
+            afterClose: function () { dlg.destroy(); }
+          });
+          dlg.open();
+        }
+
+        // ---- Editor 3: Custom Fields ------------------------------------
+        var oTargetsModel = new JSONModel({ targets: TARGETS, types: FIELD_TYPES });
+        function renderCustomFields() {
+          var addBtn = new Button({
+            text: "Add field", icon: "sap-icon://add", type: "Emphasized",
+            press: addCustomField
+          });
+          oDetail.setCustomHeader(new OverflowToolbar({
+            content: [ oDetailTitle, new ToolbarSpacer(), addBtn ]
+          }));
+          var tbl = new Table({
+            growing: true, fixedLayout: false,
+            noData: "No custom fields yet — add the first one.",
+            columns: [
+              new Column({ width: "9rem",  header: new Label({ text: "Applies to" }) }),
+              new Column({ width: "11rem", header: new Label({ text: "Label" }) }),
+              new Column({ width: "9rem",  header: new Label({ text: "Type" }) }),
+              new Column({ header: new Label({ text: "Choices (one per line)" }) }),
+              new Column({ width: "6rem", hAlign: "Center", header: new Label({ text: "Order" }) }),
+              new Column({ width: "6rem", hAlign: "Center", header: new Label({ text: "Required" }) }),
+              new Column({ width: "6rem", hAlign: "Center", header: new Label({ text: "Active" }) }),
+              new Column({ width: "4rem", hAlign: "Right", header: new Label({ text: "" }) })
+            ]
+          });
+          tbl.setModel(oModel);
+          tbl.setModel(oTargetsModel, "meta");
+          tbl.bindItems({
+            path: "/CustomFieldDefs",
+            parameters: { $$updateGroupId: "$auto" },
+            sorter: [ new Sorter("target", false, false), new Sorter("sort", false) ],
+            template: new ColumnListItem({
+              cells: [
+                new Select({
+                  selectedKey: "{target}", forceSelection: false, width: "8rem",
+                  items: { path: "meta>/targets", template: new Item({ key: "{meta>key}", text: "{meta>text}" }) },
+                  change: saveInline
+                }),
+                new Input({ value: "{label}", change: saveInline }),
+                new Select({
+                  selectedKey: "{fieldType}", forceSelection: false, width: "8rem",
+                  items: { path: "meta>/types", template: new Item({ key: "{meta>key}", text: "{meta>text}" }) },
+                  change: saveInline
+                }),
+                new TextArea({ value: "{options}", rows: 2, width: "100%", growing: false,
+                  placeholder: "Only for single-select", change: saveInline }),
+                new StepInput({ value: "{sort}", min: 0, max: 9999, step: 10, width: "6rem", change: saveInline }),
+                new Switch({ state: "{required}", change: saveInline }),
+                new Switch({ state: "{active}", change: saveInline }),
+                new Button({ icon: "sap-icon://delete", type: "Transparent", tooltip: "Delete field",
+                  press: function (e) {
+                    var ctx = e.getSource().getBindingContext();
+                    deleteCtx(ctx, ctx.getProperty("label"), "field");
+                  } })
+              ]
+            })
+          });
+          oDetail.removeAllContent();
+          oDetail.addContent(tbl);
+        }
+
+        function addCustomField() {
+          var selTarget = new Select({ width: "100%", forceSelection: true });
+          selTarget.setModel(oTargetsModel, "meta");
+          selTarget.bindItems({ path: "meta>/targets", template: new Item({ key: "{meta>key}", text: "{meta>text}" }) });
+          var inLabel = new Input({ placeholder: "e.g. Vendor contact" });
+          var selType = new Select({ width: "100%", forceSelection: true });
+          selType.setModel(oTargetsModel, "meta");
+          selType.bindItems({ path: "meta>/types", template: new Item({ key: "{meta>key}", text: "{meta>text}" }) });
+          var inOptions = new TextArea({ rows: 3, width: "100%",
+            placeholder: "One choice per line (single-select only)", enabled: false });
+          var cbReq = new CheckBox({ text: "Required" });
+          selType.attachChange(function () {
+            inOptions.setEnabled(selType.getSelectedKey() === "select");
+          });
+          var dlg = new Dialog({
+            title: "Add custom field", contentWidth: "28rem",
+            content: [ new SimpleForm({ editable: true, content: [
+              new Label({ text: "Applies to" }), selTarget,
+              new Label({ text: "Label" }), inLabel,
+              new Label({ text: "Type" }), selType,
+              new Label({ text: "Choices" }), inOptions,
+              new Label({ text: "" }), cbReq
+            ] }) ],
+            beginButton: new Button({ text: "Create", type: "Emphasized", press: function () {
+              var label = (inLabel.getValue() || "").trim();
+              if (!label) { inLabel.setValueState("Error").setValueStateText("Label is required"); return; }
+              var type = selType.getSelectedKey();
+              if (type === "select" && !(inOptions.getValue() || "").trim()) {
+                inOptions.setValueState("Error").setValueStateText("Add at least one choice"); return;
+              }
+              var b = oDetail.getContent()[0].getBinding("items");
+              var nextSort = (b.getLength() + 1) * 10;
+              b.create({
+                target: selTarget.getSelectedKey(), label: label, fieldType: type,
+                options: type === "select" ? (inOptions.getValue() || "") : "",
+                sort: nextSort, required: cbReq.getSelected(), active: true
+              }, false, true);
+              oModel.submitBatch("$auto").then(function () {
+                MessageToast.show("Added");
+              }).catch(function (err) { MessageBox.error(msg(err)); });
+              dlg.close();
+            } }),
+            endButton: new Button({ text: "Cancel", press: function () { dlg.close(); } }),
+            afterClose: function () { dlg.destroy(); }
+          });
+          dlg.open();
+        }
+
+        // ---- Editor 4: Built-in Field Visibility ------------------------
+        var oVisModel = new JSONModel({ rows: [] });
+        function renderVisibility() {
+          oDetail.setCustomHeader(new OverflowToolbar({
+            content: [ oDetailTitle, new ToolbarSpacer(),
+              new Text({ text: "Hidden fields disappear from the project & handover forms" }) ]
+          }));
+          // Build the row catalogue, then overlay any saved "hidden" flags.
+          var rows = [];
+          Object.keys(BUILTIN_FIELDS).forEach(function (target) {
+            var tText = (TARGETS.filter(function (t) { return t.key === target; })[0] || {}).text || target;
+            BUILTIN_FIELDS[target].forEach(function (f) {
+              rows.push({ target: target, targetText: tText, field: f.field, label: f.label, hidden: false });
+            });
+          });
+          oVisModel.setData({ rows: rows });
+          fetch("/governance/FieldVisibility?$select=target,field,hidden", {
+            headers: { Authorization: sessionStorage.getItem("e2e-auth") }
+          }).then(function (r) { return r.json(); }).then(function (d) {
+            var map = {};
+            ((d && d.value) || []).forEach(function (v) { map[v.target + "|" + v.field] = v.hidden; });
+            var cur = oVisModel.getProperty("/rows");
+            cur.forEach(function (row) {
+              if (map.hasOwnProperty(row.target + "|" + row.field)) { row.hidden = !!map[row.target + "|" + row.field]; }
+            });
+            oVisModel.setProperty("/rows", cur);
+          }).catch(function () { /* keep defaults */ });
+
+          var tbl = new Table({
+            growing: true, fixedLayout: false,
+            columns: [
+              new Column({ width: "11rem", header: new Label({ text: "Surface" }) }),
+              new Column({ header: new Label({ text: "Built-in field" }) }),
+              new Column({ width: "7rem", hAlign: "Center", header: new Label({ text: "Hidden" }) })
+            ]
+          });
+          tbl.setModel(oVisModel, "vis");
+          tbl.bindItems({
+            path: "vis>/rows",
+            sorter: [ new Sorter("targetText", false, true) ],
+            groupHeaderFactory: function (g) { return new GroupHeaderListItem({ title: g.key, upperCase: false }); },
+            template: new ColumnListItem({
+              cells: [
+                new Text({ text: "{vis>targetText}" }),
+                new Text({ text: "{vis>label}" }),
+                new Switch({ state: "{vis>hidden}", change: function (e) {
+                  var ctx = e.getSource().getBindingContext("vis");
+                  var o = ctx.getObject();
+                  saveVisibility(o.target, o.field, e.getParameter("state"));
+                } })
+              ]
+            })
+          });
+          oDetail.removeAllContent();
+          oDetail.addContent(tbl);
+        }
+
+        // Upsert a visibility flag: PATCH the composite-key row, POST if new.
+        function saveVisibility(target, field, hidden) {
+          var hdrs = {
+            Authorization: sessionStorage.getItem("e2e-auth"),
+            "Content-Type": "application/json"
+          };
+          var key = "FieldVisibility(target='" + target.replace(/'/g, "''") +
+                    "',field='" + field.replace(/'/g, "''") + "')";
+          fetch("/governance/" + key, {
+            method: "PATCH", headers: hdrs, body: JSON.stringify({ hidden: hidden })
+          }).then(function (r) {
+            if (r.status === 404) {
+              return fetch("/governance/FieldVisibility", {
+                method: "POST", headers: hdrs,
+                body: JSON.stringify({ target: target, field: field, hidden: hidden })
+              });
+            }
+            return r;
+          }).then(function (r) {
+            if (!r.ok) { throw new Error("HTTP " + r.status); }
+            MessageToast.show("Saved", { duration: 900 });
+          }).catch(function (err) {
+            MessageBox.error("Could not save: " + (err.message || err));
+          });
+        }
+
+        // =================================================================
         // FLEXIBLE COLUMN LAYOUT — master | detail
         // =================================================================
         var oFCL = new FlexibleColumnLayout({
@@ -467,5 +926,6 @@
     });
   </script>
 </head>
-<body class="sapUiBody"><script src="/shared/nav.js"></script></body>
+<body class="sapUiBody">  <script src="/shared/nav.js"></script>
+</body>
 </html>

@@ -89,6 +89,10 @@ annotate GovernanceService.Testing with {
 // ===========================================================================
 // PROJECTS — List Report + Object Page
 // ===========================================================================
+// Free-text search ($search / the List Report search box) matches only these
+// fields, so results stay predictable: the human ID, the name and the notes.
+annotate GovernanceService.Projects with @cds.search: { ID, name, notes };
+
 annotate GovernanceService.Projects with @(
   UI.HeaderInfo : {
     TypeName       : 'Project',
@@ -108,8 +112,10 @@ annotate GovernanceService.Projects with @(
   UI.SelectionFields : [
     itOwner_code,
     phase_code,
+    priority_code,
     riskLevel_code,
-    workCategory_code
+    workCategory_code,
+    domain_code
   ],
 
   // The custom "Completeness" column reads completeness/overallPct, but FE does
@@ -138,6 +144,7 @@ annotate GovernanceService.Projects with @(
       Label: 'Completeness', @UI.Importance: #High },
     { $Type: 'UI.DataField', Value: itOwner_code,       Label: 'IT Owner',          @UI.Importance: #High },
     { $Type: 'UI.DataField', Value: phase_code,         Label: 'Phase',             @UI.Importance: #High },
+    { $Type: 'UI.DataField', Value: targetGoLiveDate,   Label: 'Target Go-Live',    @UI.Importance: #Low },
     { $Type: 'UI.DataField', Value: priority_code,      Label: 'Priority',          @UI.Importance: #Low },
     { $Type: 'UI.DataField', Value: riskLevel_code,     Label: 'Risk Level',        @UI.Importance: #Low },
     { $Type: 'UI.DataField', Value: workCategory_code,  Label: 'Work Category',     @UI.Importance: #Low },
@@ -177,6 +184,9 @@ annotate GovernanceService.Projects with @(
     { Value: priority_code,      Label: 'Priority' },
     { Value: phase_code,         Label: 'Current Phase' },
     { Value: riskLevel_code,     Label: 'Risk Level' },
+    { Value: startDate,          Label: 'Start Date' },
+    { Value: targetGoLiveDate,   Label: 'Target Go-Live Date' },
+    { Value: actualGoLiveDate,   Label: 'Actual Go-Live Date' },
     { Value: numberOfUsers,      Label: 'Number of Users' },
     { Value: numberOfRequests,   Label: 'Number of Requests' },
     { Value: utilization,        Label: 'Utilization %' },
@@ -185,7 +195,9 @@ annotate GovernanceService.Projects with @(
 );
 
 annotate GovernanceService.Projects with {
-  ID           @Common.Label: 'Project ID';
+  // @Core.Computed: the server assigns the next PRJ-### number on create, so
+  // Fiori skips the "New Object: Project ID" dialog and shows it read-only.
+  ID           @Common.Label: 'Project ID'  @Core.Computed;
   name         @Common.Label: 'Project Name' @title: 'Project Name' @mandatory;
   // IT Owner is read-only (FieldControl 1) for Employees and editable (3) for
   // Manager/Admin — itOwnerFC is computed per user in srv/service.js, so an
@@ -198,6 +210,9 @@ annotate GovernanceService.Projects with {
   priority     @Common.Label: 'Priority';
   phase        @Common.Label: 'Current Phase';
   riskLevel    @Common.Label: 'Risk Level';
+  startDate        @Common.Label: 'Start Date';
+  targetGoLiveDate @Common.Label: 'Target Go-Live Date';
+  actualGoLiveDate @Common.Label: 'Actual Go-Live Date';
   numberOfUsers    @Common.Label: 'Number of Users';
   numberOfRequests @Common.Label: 'Number of Requests';
   utilization  @Common.Label: 'Utilization %' @Core.Computed @Measures.Unit: '%';

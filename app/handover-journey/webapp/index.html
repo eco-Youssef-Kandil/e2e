@@ -195,7 +195,7 @@
 
     <div id="board">
       <h2>The journey from delivery team to support team…</h2>
-      <p class="sub">Six handover phases plus the final sign-off — follow the road to see how far the handover has come.</p>
+      <p class="sub">Every handover phase plus the final hand-over — follow the road to see how far the handover has come.</p>
       <div id="journeyWrap">
         <svg id="journeySvg" viewBox="0 0 1180 600" width="1180" height="600" aria-hidden="true"></svg>
       </div>
@@ -203,9 +203,9 @@
     </div>
 
     <div id="noPlan">
-      <div class="big"></div>
+      <div class="big">🤝</div>
       <h3>No handover plan yet</h3>
-      <p>This project doesn't have a handover plan. Create one in the Handover workspace — it starts you off with the 15 standard tasks.</p>
+      <p>This project doesn't have a handover plan. Create one in the Handover workspace — it starts you off with the standard task template.</p>
       <button id="noPlanBtn" class="signout" style="color:#fff;background:var(--nadec-blue);border-color:var(--nadec-blue);padding:9px 18px;border-radius:10px;cursor:pointer;font-weight:700">Go to Handover Workspace</button>
     </div>
   </div>
@@ -237,15 +237,9 @@
     }
 
     // ---- Phase metadata --------------------------------------------------------
-    // Same six phases the Handover workspace seeds its 15 template tasks into.
-    var PHASES = [
-      { key: "Preparation",        name: "Preparation",        desc: "Scope the handover — what is being handed over, to whom, and by when." },
-      { key: "Documentation",      name: "Documentation",      desc: "Runbooks, architecture notes and how-to guides for the support team." },
-      { key: "Knowledge Transfer", name: "Knowledge Transfer", desc: "Walkthrough sessions and shadowing so support knows the solution." },
-      { key: "Access & Setup",     name: "Access & Setup",     desc: "Support team gets system access, monitoring and alerting in place." },
-      { key: "Hypercare",          name: "Hypercare",          desc: "Delivery team stays close while support handles real tickets." },
-      { key: "Sign-off",           name: "Sign-off",           desc: "Both sides confirm the handover is complete — support owns it now." }
-    ];
+    // Loaded live from HandoverPhases so managers can add / rename / reorder /
+    // remove phases without any code change. Each entry: { key, name, desc }.
+    var PHASES = [];
 
     var COLORS = {
       done:    "#2e7d32",
@@ -278,8 +272,9 @@
               "&$expand=itOwner($select=name),phase($select=name)" +
               "&$filter=IsActiveEntity eq true&$orderby=ID&$top=5000"),
       getJson("/governance/HandoverPlans?$select=project_ID,status_code,targetDate,actualDate," +
-              "fromOwner_code&$expand=toOwners($select=employee_code)&$top=5000"),
-      getJson("/governance/HandoverTasks?$select=plan_project_ID,phase,status_code,title,owner_code,dueDate&$top=5000")
+              "fromOwner_code,toOwner_code&$top=5000"),
+      getJson("/governance/HandoverTasks?$select=plan_project_ID,phase,status_code,title,owner_code,dueDate&$top=5000"),
+      getJson("/governance/HandoverPhases?$select=ID,name,description,sort&$filter=active eq true&$orderby=sort,ID&$top=5000")
     ])
       .then(function (res) {
         PROJECTS = res[0].value || [];
@@ -289,6 +284,9 @@
         (res[2].value || []).forEach(function (t) {
           var h = HANDOVER[t.plan_project_ID];
           if (h) h.tasks.push(t);
+        });
+        PHASES = (res[3].value || []).map(function (ph) {
+          return { key: ph.ID, name: ph.name || ph.ID, desc: ph.description || "" };
         });
         if (!PROJECTS.length) throw new Error("No projects found");
         document.getElementById("loading").style.display = "none";
@@ -312,7 +310,7 @@
     function buildPicker() {
       var sel = document.getElementById("projPicker");
       sel.innerHTML = PROJECTS.map(function (p, i) {
-        var mark = HANDOVER[p.ID] ? "✓ " : "";
+        var mark = HANDOVER[p.ID] ? "🤝 " : "";
         return '<option value="' + i + '">' + esc(mark + p.ID + " — " + (p.name || "")) + "</option>";
       }).join("");
       sel.onchange = function () { show(Number(sel.value)); };
@@ -379,7 +377,7 @@
       var overdue = pl.targetDate && !pl.actualDate && pl.targetDate < today;
       chips.innerHTML =
         '<span class="chip">From <b>' + esc(pl.fromOwner_code || "—") + "</b></span>" +
-        '<span class="chip">To <b>' + esc(pl.toOwners && pl.toOwners.length ? pl.toOwners.map(function (r) { return r.employee_code; }).join(", ") : "—") + "</b></span>" +
+        '<span class="chip">To <b>' + esc(pl.toOwner_code || "—") + "</b></span>" +
         '<span class="chip' + (overdue ? " warn" : "") + '">Target <b>' + esc(pl.targetDate || "—") + (overdue ? " ⚠" : "") + "</b></span>" +
         (pl.actualDate ? '<span class="chip">Handed over <b>' + esc(pl.actualDate) + "</b></span>" : "") +
         '<span class="chip">Status <b>' + esc(pl.status_code || "Not Started") + "</b></span>";
@@ -409,13 +407,28 @@
     }
 
     // ---- The winding road -------------------------------------------------------
-    // 7 stops (6 handover phases + handed-over finish) along a serpentine path.
-    var STOP_POS = [
-      { x: 95,  y: 190 }, { x: 260, y: 400 }, { x: 425, y: 190 }, { x: 590, y: 400 },
-      { x: 755, y: 190 }, { x: 920, y: 400 }, { x: 1085, y: 190 }
-    ];
+    // Stops = every handover phase (manager-defined) + a handed-over finish stop,
+    // laid out along a serpentine path that grows/shrinks with the phase count.
+    var STOP_POS = [];
+    var ROAD_W = 1180;   // journey canvas width (recomputed per project)
+    var ROAD_H = 600;
+
+    // Build evenly-spaced serpentine positions for n stops (top row y=190,
+    // bottom row y=400, alternating). Widens the canvas when there are many.
+    function computeStops(n) {
+      var yTop = 190, yBot = 400, margin = 95, minGap = 165;
+      var span = Math.max(1180 - margin * 2, (n - 1) * minGap);
+      ROAD_W = span + margin * 2;
+      var step = n > 1 ? span / (n - 1) : 0;
+      var pts = [];
+      for (var i = 0; i < n; i++) {
+        pts.push({ x: Math.round(margin + i * step), y: (i % 2 === 0) ? yTop : yBot });
+      }
+      return pts;
+    }
 
     function roadPath() {
+      if (!STOP_POS.length) return "";
       var d = "M " + STOP_POS[0].x + " " + STOP_POS[0].y;
       for (var i = 1; i < STOP_POS.length; i++) {
         var a = STOP_POS[i - 1], b = STOP_POS[i];
@@ -425,9 +438,63 @@
       return d;
     }
 
+    // Empty state: no handover phases have been configured, so there's no road
+    // to draw. Clear the canvas and explain how to bring the journey back.
+    function drawNoPhases(wrap, svg) {
+      STOP_POS = [];
+      ROAD_W = 1180;
+      wrap.style.width = ROAD_W + "px";
+      wrap.style.height = "auto";
+      svg.setAttribute("viewBox", "0 0 " + ROAD_W + " " + ROAD_H);
+      svg.setAttribute("width", ROAD_W);
+      svg.setAttribute("height", 0);
+      svg.innerHTML = "";
+      Array.prototype.slice.call(wrap.querySelectorAll(".stop, .stageCard, .youAreHere, .noPhases"))
+        .forEach(function (n) { n.remove(); });
+
+      var isManager = ["Manager", "Admin"].indexOf(sessionStorage.getItem("e2e-user-role") || "") >= 0;
+      var box = document.createElement("div");
+      box.className = "noPhases";
+      box.style.cssText = "text-align:center;padding:60px 30px;color:var(--muted)";
+      box.innerHTML =
+        '<div style="font-size:40px;margin-bottom:10px">🧭</div>' +
+        '<h3 style="color:var(--ink);font-size:17px;margin:0 0 6px">No handover phases yet</h3>' +
+        '<p style="font-size:13px;margin:0 auto 18px;max-width:480px">The journey is built from the list of handover phases. ' +
+        (isManager
+          ? 'Add at least one phase in <b>Manage Lists → Handover Phases</b> to bring the road back.'
+          : 'Ask a manager to add at least one phase in <b>Manage Lists → Handover Phases</b> to bring the road back.') +
+        "</p>" +
+        (isManager
+          ? '<a href="/admin-lists/webapp/index.html" style="display:inline-block;padding:9px 18px;border-radius:10px;background:var(--nadec-blue);color:#fff;text-decoration:none;font-weight:700">Open Manage Lists</a>'
+          : "");
+      wrap.appendChild(box);
+
+      document.getElementById("legend").innerHTML = "";
+    }
+
     function drawJourney(h) {
       var wrap = document.getElementById("journeyWrap");
       var svg = document.getElementById("journeySvg");
+
+      // Restore the canvas height in case a previous project had no phases.
+      wrap.style.height = ROAD_H + "px";
+      svg.setAttribute("height", ROAD_H);
+      var stale = wrap.querySelector(".noPhases");
+      if (stale) { stale.remove(); }
+
+      // No phases configured → the road would be just a lone finish stop, which
+      // is meaningless. Show a friendly empty state pointing to Manage Lists.
+      if (!PHASES.length) {
+        drawNoPhases(wrap, svg);
+        return;
+      }
+
+      // Size the road to the number of stops (phases + finish) before drawing.
+      STOP_POS = computeStops(PHASES.length + 1);
+      wrap.style.width = ROAD_W + "px";
+      svg.setAttribute("viewBox", "0 0 " + ROAD_W + " " + ROAD_H);
+      svg.setAttribute("width", ROAD_W);
+      svg.setAttribute("height", ROAD_H);
 
       svg.innerHTML =
         '<path d="' + roadPath() + '" fill="none" stroke="#cfe0f4" stroke-width="28" stroke-linecap="round"/>' +
@@ -452,7 +519,7 @@
       stops.push(finished
         ? { name: "Handed Over!", desc: "The support team owns this solution now" +
               (h.plan.actualDate ? " — since " + h.plan.actualDate : "") + ".",
-            state: "done", label: "Complete", color: COLORS.done }
+            state: "done", label: "Complete 🎉", color: COLORS.done }
         : { name: "Handed Over!", desc: "Finish all phases to complete the handover to the support team.",
             state: "todo", label: "Not yet", color: COLORS.todo });
 
@@ -471,7 +538,7 @@
         stop.style.left = pos.x + "px";
         stop.style.top = pos.y + "px";
         stop.style.background = s.color;
-        stop.textContent = String(idx + 1);
+        stop.textContent = idx === stops.length - 1 ? "🤝" : String(idx + 1);
         stop.title = s.name + " — " + s.label;
         wrap.appendChild(stop);
 

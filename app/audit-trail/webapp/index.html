@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NADEC E2E — Audit Trail</title>
+
+  <style>
+    :root {
+      --nadec-blue: #0033A0;
+      --nadec-blue-dark: #002673;
+      --ink: #1d2d3e;
+      --muted: #5b6b7b;
+      --line: #d9e1e8;
+      --bg: #eef3f7;
+      --green: #2e7d32;
+      --red: #c62828;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0; min-height: 100%;
+      font-family: "72", "72full", Arial, Helvetica, sans-serif;
+      color: var(--ink);
+      background: linear-gradient(180deg, #eaf1fb 0%, #eef3f7 40%, #e7f0f7 100%);
+    }
+    #topBar {
+      position: fixed; top: 0; left: 0; right: 0; height: 48px; z-index: 1000;
+      display: flex; align-items: center; gap: 12px; padding: 0 16px;
+      background: linear-gradient(135deg, var(--nadec-blue), var(--nadec-blue-dark));
+      color: #fff; box-shadow: 0 2px 4px rgba(0,0,0,0.18); font-size: 13px;
+    }
+    #topBar .ghost {
+      padding: 5px 12px; font-size: 13px; font-weight: 600; color: #fff; cursor: pointer;
+      background: rgba(255,255,255,0.14); border: 1px solid rgba(255,255,255,0.5); border-radius: 6px;
+    }
+    #topBar .title { font-weight: 600; font-size: 15px; letter-spacing: 0.3px; white-space: nowrap; }
+    #topBar .spacer { flex: 1 1 auto; }
+    #topBar .who { opacity: 0.85; white-space: nowrap; }
+    #topBar .signout {
+      padding: 5px 14px; font-size: 13px; font-weight: 600; color: var(--nadec-blue); cursor: pointer;
+      background: #fff; border: 1px solid #fff; border-radius: 6px;
+    }
+
+    #content { padding: 66px 20px 40px; max-width: 1220px; margin: 0 auto; display: none; }
+
+    #hero {
+      background: #fff; border: 1px solid var(--line); border-radius: 14px;
+      box-shadow: 0 4px 16px rgba(13,40,70,0.07);
+      padding: 18px 22px; margin-bottom: 18px;
+    }
+    #hero h1 { font-size: 20px; margin: 0; font-weight: 700; }
+    #hero p { margin: 6px 0 0; font-size: 13px; color: var(--muted); }
+
+    .card {
+      background: #fff; border: 1px solid var(--line); border-radius: 14px;
+      box-shadow: 0 4px 16px rgba(13,40,70,0.07);
+      padding: 18px 22px; margin-bottom: 18px;
+    }
+
+    #filters { display: flex; flex-wrap: wrap; gap: 12px 16px; align-items: flex-end; }
+    .fld { display: flex; flex-direction: column; gap: 5px; }
+    .fld label { font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.4px; }
+    .fld input, .fld select {
+      font-family: inherit; font-size: 13px; color: var(--ink);
+      border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; background: #fff;
+    }
+    .fld input:focus, .fld select:focus { outline: none; border-color: var(--nadec-blue); }
+    #q { min-width: 230px; }
+    .btn {
+      padding: 9px 16px; font-size: 13px; font-weight: 700; cursor: pointer;
+      border-radius: 10px; border: 1px solid var(--nadec-blue);
+      background: #fff; color: var(--nadec-blue); font-family: inherit;
+    }
+    .btn:hover { background: #eef4ff; }
+    .btn:disabled { opacity: 0.45; cursor: default; }
+
+    #meta { font-size: 12px; color: var(--muted); margin: 0 0 10px; display: flex; align-items: center; gap: 14px; }
+    #meta .pageBtns { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+    .pageBtn {
+      width: 32px; height: 32px; border-radius: 8px; border: 1px solid var(--line);
+      background: #fff; font-size: 15px; cursor: pointer; color: var(--nadec-blue); font-weight: 700;
+    }
+    .pageBtn:disabled { opacity: 0.35; cursor: default; }
+
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    thead th {
+      text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.4px;
+      color: var(--muted); font-weight: 700; padding: 8px 10px; border-bottom: 2px solid var(--line);
+      white-space: nowrap;
+    }
+    tbody td { padding: 8px 10px; border-bottom: 1px solid #edf1f5; vertical-align: top; }
+    tbody tr:hover { background: #f7fafd; }
+    td.when { white-space: nowrap; color: var(--muted); }
+    td.what { max-width: 260px; word-break: break-word; }
+    .chip {
+      display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 11px; font-weight: 700;
+      border: 1px solid var(--line); background: #f5f8fb; white-space: nowrap;
+    }
+    .chip.create { color: var(--green); border-color: #bfe3c2; background: #f0f9f1; }
+    .chip.update { color: #8a6d00; border-color: #ecd9a8; background: #fdf7e7; }
+    .chip.delete { color: var(--red); border-color: #f0c4c4; background: #fff5f5; }
+    .old { color: var(--red); text-decoration: line-through; text-decoration-color: rgba(198,40,40,0.5); }
+    .new { color: var(--green); font-weight: 600; }
+    .dim { color: var(--muted); }
+    #emptyRow td { text-align: center; color: var(--muted); padding: 26px 10px; }
+
+    #loading, #error { margin-top: 100px; text-align: center; color: var(--muted); font-size: 15px; }
+    #error { color: #c62828; display: none; }
+  </style>
+
+  <script>
+    (function () {
+      if (!sessionStorage.getItem("e2e-auth")) {
+        window.location.replace("../../project-portal/webapp/login.html");
+      } else if (sessionStorage.getItem("e2e-user-role") !== "Manager" &&
+                 sessionStorage.getItem("e2e-user-role") !== "Admin") {
+        // Audit trail is manager-only — Admin inherits Manager (the server
+        // enforces this too via the Manager-restricted ChangeLog).
+        window.location.replace("../../project-portal/webapp/index.html");
+      }
+    })();
+  </script>
+</head>
+<body>
+  <div id="topBar">
+    <button class="ghost" id="backBtn">← Portal</button>
+    <span class="title">Audit Trail</span>
+    <div class="spacer"></div>
+    <span class="who" id="who"></span>
+    <button class="signout" id="signoutBtn">Sign out</button>
+  </div>
+
+  <div id="content">
+    <div id="hero">
+      <h1>Audit Trail</h1>
+      <p>Every tracked change across the portfolio — who changed what, when, and the old and new
+         values. Covers projects, all lifecycle sections, risks, handover plans &amp; tasks and
+         custom-field values.</p>
+    </div>
+
+    <div class="card">
+      <div id="filters">
+        <div class="fld">
+          <label for="q">Search</label>
+          <input id="q" type="text" placeholder="Project ID, name, value…">
+        </div>
+        <div class="fld">
+          <label for="fSection">Section</label>
+          <select id="fSection"><option value="">All sections</option></select>
+        </div>
+        <div class="fld">
+          <label for="fUser">Changed by</label>
+          <select id="fUser"><option value="">Anyone</option></select>
+        </div>
+        <div class="fld">
+          <label for="fType">Change type</label>
+          <select id="fType">
+            <option value="">All</option>
+            <option value="create">Created</option>
+            <option value="update">Updated</option>
+            <option value="delete">Deleted</option>
+          </select>
+        </div>
+        <div class="fld">
+          <label for="fFrom">From</label>
+          <input id="fFrom" type="date">
+        </div>
+        <div class="fld">
+          <label for="fTo">To</label>
+          <input id="fTo" type="date">
+        </div>
+        <button class="btn" id="clearBtn">Clear</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div id="meta">
+        <span id="countLbl">—</span>
+        <div class="pageBtns">
+          <button class="pageBtn" id="prevPage" title="Newer">‹</button>
+          <span id="pageLbl"></span>
+          <button class="pageBtn" id="nextPage" title="Older">›</button>
+        </div>
+      </div>
+      <div style="overflow-x:auto">
+        <table>
+          <thead>
+            <tr>
+              <th>When</th>
+              <th>Changed By</th>
+              <th>Record</th>
+              <th>Section</th>
+              <th>Field</th>
+              <th>Change</th>
+              <th>Old Value</th>
+              <th>New Value</th>
+            </tr>
+          </thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div id="loading">Loading audit trail…</div>
+  <div id="error"></div>
+
+  <script>
+    "use strict";
+
+    var userName = sessionStorage.getItem("e2e-user-name") || "";
+    var userRole = sessionStorage.getItem("e2e-user-role") || "";
+    document.getElementById("who").textContent = userName + (userRole ? " · " + userRole : "");
+    document.getElementById("backBtn").onclick = function () {
+      window.location.href = "../../project-portal/webapp/index.html";
+    };
+    document.getElementById("signoutBtn").onclick = function () {
+      sessionStorage.removeItem("e2e-auth");
+      sessionStorage.removeItem("e2e-user-name");
+      sessionStorage.removeItem("e2e-user-role");
+      window.location.replace("../../project-portal/webapp/login.html");
+    };
+
+    function esc(s) {
+      return String(s === null || s === undefined ? "" : s)
+        .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+    }
+
+    var AUTH = sessionStorage.getItem("e2e-auth");
+    function odata(path) {
+      return fetch("/governance/" + path, { headers: { Authorization: AUTH } })
+        .then(function (r) {
+          if (r.status === 401) {
+            sessionStorage.removeItem("e2e-auth");
+            window.location.replace("../../project-portal/webapp/login.html");
+            throw new Error("Not authorized");
+          }
+          if (r.status === 403) {
+            window.location.replace("../../project-portal/webapp/index.html");
+            throw new Error("Managers only");
+          }
+          if (!r.ok) {
+            return r.text().then(function (t) {
+              var msg = "Request failed: " + r.status;
+              try { var j = JSON.parse(t); if (j.error && j.error.message) { msg = j.error.message; } } catch (e) {}
+              throw new Error(msg);
+            });
+          }
+          return r.json();
+        });
+    }
+
+    // Friendly names for tracked entities; anything unknown gets its last
+    // path segment split from camel case.
+    var SECTIONS = {
+      "nadec.e2e.Projects":          "Project",
+      "nadec.e2e.BusinessInput":     "Business Input",
+      "nadec.e2e.Readiness":         "E2E Readiness",
+      "nadec.e2e.SolutionDetails":   "Solution Details",
+      "nadec.e2e.GoLiveChecklist":   "Go-Live Checklist",
+      "nadec.e2e.Testing":           "Testing / QA",
+      "nadec.e2e.Risks":             "Risk",
+      "nadec.e2e.HandoverPlans":     "Handover Plan",
+      "nadec.e2e.HandoverTasks":     "Handover Task",
+      "nadec.e2e.CustomFieldValues": "Custom Field Value",
+      "nadec.e2e.CustomFieldDefs":   "Custom Field Definition"
+    };
+    function humanize(s) {
+      s = String(s || "");
+      return s.replace(/_code$/, "").replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+        .replace(/^./, function (c) { return c.toUpperCase(); });
+    }
+    function sectionName(entity) {
+      return SECTIONS[entity] || humanize(String(entity || "").split(".").pop());
+    }
+    function fmtWhen(iso) {
+      if (!iso) { return ""; }
+      var d = new Date(iso);
+      if (isNaN(d)) { return iso; }
+      return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" }) +
+        " " + d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+    }
+
+    var PAGE = 50;
+    var page = 0;
+    var total = 0;
+    var debounceT = null;
+
+    function escOData(s) { return String(s).replace(/'/g, "''"); }
+
+    function buildFilter() {
+      var parts = [];
+      var q = document.getElementById("q").value.trim();
+      if (q) {
+        var v = escOData(q);
+        parts.push("(contains(objectID,'" + v + "') or contains(valueChangedFrom,'" + v +
+          "') or contains(valueChangedTo,'" + v + "') or contains(attribute,'" + v + "'))");
+      }
+      var section = document.getElementById("fSection").value;
+      if (section) { parts.push("entity eq '" + escOData(section) + "'"); }
+      var user = document.getElementById("fUser").value;
+      if (user) { parts.push("createdBy eq '" + escOData(user) + "'"); }
+      var type = document.getElementById("fType").value;
+      if (type) { parts.push("modification eq '" + escOData(type) + "'"); }
+      var from = document.getElementById("fFrom").value;
+      if (from) { parts.push("createdAt ge " + from + "T00:00:00Z"); }
+      var to = document.getElementById("fTo").value;
+      if (to) { parts.push("createdAt le " + to + "T23:59:59Z"); }
+      return parts.join(" and ");
+    }
+
+    function load() {
+      var filter = buildFilter();
+      var url = "ChangeLog?$orderby=createdAt desc,ID&$count=true" +
+        "&$top=" + PAGE + "&$skip=" + (page * PAGE) +
+        (filter ? "&$filter=" + encodeURIComponent(filter) : "");
+      odata(url).then(function (res) {
+        total = res["@odata.count"] || 0;
+        render(res.value || []);
+      }).catch(function (err) {
+        document.getElementById("rows").innerHTML =
+          '<tr id="emptyRow"><td colspan="8">' + esc(err.message || "Could not load changes") + "</td></tr>";
+      });
+    }
+
+    function render(rows) {
+      var tb = document.getElementById("rows");
+      if (!rows.length) {
+        tb.innerHTML = '<tr id="emptyRow"><td colspan="8">No changes match these filters.</td></tr>';
+      } else {
+        tb.innerHTML = rows.map(function (c) {
+          var mod = String(c.modification || "").toLowerCase();
+          var modLbl = mod === "create" ? "Created" : mod === "delete" ? "Deleted" : "Updated";
+          return "<tr>" +
+            '<td class="when">' + esc(fmtWhen(c.createdAt)) + "</td>" +
+            "<td>" + esc(c.createdBy || "") + "</td>" +
+            '<td class="what">' + esc(c.objectID || "") + "</td>" +
+            "<td>" + esc(sectionName(c.entity)) + "</td>" +
+            "<td>" + esc(humanize(c.attribute)) + "</td>" +
+            '<td><span class="chip ' + esc(mod) + '">' + modLbl + "</span></td>" +
+            '<td class="what">' + (c.valueChangedFrom
+              ? '<span class="old">' + esc(c.valueChangedFrom) + "</span>"
+              : '<span class="dim">—</span>') + "</td>" +
+            '<td class="what">' + (c.valueChangedTo
+              ? '<span class="new">' + esc(c.valueChangedTo) + "</span>"
+              : '<span class="dim">—</span>') + "</td>" +
+            "</tr>";
+        }).join("");
+      }
+      var pages = Math.max(1, Math.ceil(total / PAGE));
+      document.getElementById("countLbl").textContent =
+        total + " change" + (total === 1 ? "" : "s");
+      document.getElementById("pageLbl").textContent = (page + 1) + " / " + pages;
+      document.getElementById("prevPage").disabled = page <= 0;
+      document.getElementById("nextPage").disabled = page >= pages - 1;
+    }
+
+    function refresh() { page = 0; load(); }
+
+    document.getElementById("q").oninput = function () {
+      clearTimeout(debounceT);
+      debounceT = setTimeout(refresh, 300);
+    };
+    ["fSection", "fUser", "fType", "fFrom", "fTo"].forEach(function (id) {
+      document.getElementById(id).onchange = refresh;
+    });
+    document.getElementById("clearBtn").onclick = function () {
+      ["q", "fFrom", "fTo"].forEach(function (id) { document.getElementById(id).value = ""; });
+      ["fSection", "fUser", "fType"].forEach(function (id) { document.getElementById(id).value = ""; });
+      refresh();
+    };
+    document.getElementById("prevPage").onclick = function () { if (page > 0) { page--; load(); } };
+    document.getElementById("nextPage").onclick = function () { page++; load(); };
+
+    // Initial load: dropdown contents (distinct sections + users) and page 1.
+    Promise.all([
+      odata("ChangeLog?$apply=groupby((entity))"),
+      odata("ChangeLog?$apply=groupby((createdBy))")
+    ]).then(function (res) {
+      var secSel = document.getElementById("fSection");
+      (res[0].value || []).map(function (r) { return r.entity; }).filter(Boolean)
+        .sort(function (a, b) { return sectionName(a).localeCompare(sectionName(b)); })
+        .forEach(function (e) {
+          var o = document.createElement("option");
+          o.value = e; o.textContent = sectionName(e);
+          secSel.appendChild(o);
+        });
+      var userSel = document.getElementById("fUser");
+      (res[1].value || []).map(function (r) { return r.createdBy; }).filter(Boolean).sort()
+        .forEach(function (u) {
+          var o = document.createElement("option");
+          o.value = u; o.textContent = u;
+          userSel.appendChild(o);
+        });
+      document.getElementById("loading").style.display = "none";
+      document.getElementById("content").style.display = "";
+      load();
+    }).catch(function (err) {
+      document.getElementById("loading").style.display = "none";
+      var e = document.getElementById("error");
+      e.style.display = "";
+      e.textContent = "Could not load the audit trail: " + (err && err.message ? err.message : "unknown error");
+    });
+  </script>
+  <script src="/shared/nav.js"></script>
+</body>
+</html>
